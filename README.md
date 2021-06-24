@@ -15,7 +15,7 @@ We use most of the default settings of GSMR analysis (shown below are among the 
 
 ## Requirements
 
-1. PLINK formatted reference genotype files split by chromosome (we use [UKBB genotype data](gs://open-targets-ukbb/genotypes/ukb_v3_downsampled10k) (not public) downsampled to 10K)
+1. PLINK formatted reference genotype files split by chromosome (we use [UKBB genotype data](gs://open-targets-ukbb/genotypes/ukb_v3_downsampled10k) downsampled to 10K)
 2. Google Cloud Project [service account json key](https://cloud.google.com/iam/docs/creating-managing-service-account-keys)
 3. Linux tools
     * [gcta](https://cnsgenomics.com/software/gcta/#Download) (`gs://genetics-portal-ukbb-mr-eur/gcta64`)
