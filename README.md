@@ -15,7 +15,7 @@ We use most of the default settings of GSMR analysis (shown below are among the 
 
 ## Requirements
 
-1. PLINK formatted reference genotype files split by chromosome. We use [UKBB genotype data](gs://open-targets-ukbb/genotypes/ukb_v3_downsampled10k) downsampled to 10K. UKBB genotype data were [lifted over](https://github.com/opentargets/genetics-backend/tree/master/reference_data/uk_biobank_v3) from build 37 to build 38.
+1. PLINK formatted reference genotype files split by chromosome. We use [UKBB genotype data](https://console.cloud.google.com/storage/browser/open-targets-ukbb) (not public) downsampled to 10K. UKBB genotype data were [lifted over](https://github.com/opentargets/genetics-backend/tree/master/reference_data/uk_biobank_v3) from build 37 to build 38.
 2. Google Cloud Project [service account json key](https://cloud.google.com/iam/docs/creating-managing-service-account-keys)
 3. Linux tools
     * [gcta](https://cnsgenomics.com/software/gcta/#Download) (`gs://genetics-portal-ukbb-mr-eur/gcta64`)
@@ -66,7 +66,7 @@ Finally,
 
 Summary statistics need to be in the [cojo](https://cnsgenomics.com/software/gcta/#COJO) format.
 
-We use harmonised summary statistics that are harmonised using the pipelines:
+We use harmonised summary statistics (build 38) that are harmonised using the pipelines:
 
 - [https://github.com/EBISPOT/gwas-sumstats-harmoniser](https://github.com/EBISPOT/gwas-sumstats-harmoniser)
 
