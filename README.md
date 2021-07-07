@@ -9,7 +9,7 @@ We use most of the default settings of GSMR analysis (shown below are among the 
 1. `--gwas-thresh` 5e-8
 2. `--clump-r2` 0.05
 3. `--heidi-thresh` 0.01
-4. `--gsmr-snp-min` 10 (this is relaxed to 1 when datasets have limited MR results based on the min. 10 instruments req)
+4. `--gsmr-snp-min` 1
 5. `--diff-freq` 0.5
 6. `--gsmr-direction` 0 (forward MR analysis)
 
@@ -30,7 +30,7 @@ We use most of the default settings of GSMR analysis (shown below are among the 
     * [googleCloudStorageR](https://github.com/cloudyr/googleCloudStorageR)
     * [data.table](https://github.com/Rdatatable/data.table)
     * [dplyr](https://dplyr.tidyverse.org/)
-    * [arrow](https://arrow.apache.org/docs/r/) (only required if files are in parquet formar)
+    * [arrow](https://arrow.apache.org/docs/r/) (only required if files are in parquet format)
     
 ## Set up
 

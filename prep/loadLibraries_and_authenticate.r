@@ -9,7 +9,7 @@ httr::set_config(httr::config(http_version = 0))
 
 # authenticate
 
-json_path = "open-targets-genetics-fc5b6cda58e5.json"
+json_path = "~/open-targets-genetics-fc5b6cda58e5.json"
 
 bq_auth(path = json_path, use_oob = T)
 bqr_auth(json_file = json_path)

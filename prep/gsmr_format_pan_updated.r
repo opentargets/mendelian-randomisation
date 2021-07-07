@@ -1,10 +1,10 @@
 # LOAD LIBRARIES AND AUTHENTICATE
 
-source("loadLibraries_and_authenticate.r")
+source("prep/loadLibraries_and_authenticate.r")
 
 # LOAD CONFIG FILE
 
-source("config.r")
+source("~/mr/mendelian-randomisation/configs/config_nightingale.r")
 
 
 # CREATE DATASET IN BigQuery (BQ) PROJECT
@@ -48,12 +48,12 @@ if(cond==FALSE) {
 
 if(parq==TRUE) {
   
-  source("load_pq_tables_bq.r")
+  source("prep/load_pq_tables_bq.r")
   load_pq_tables_bq() # script loads tables from gc to the bq dataset
   
 } else {
   
-  source("load_tables_bq.r")
+  source("prep/load_tables_bq.r")
   load_tables_bq() # script loads tables from gc to the bq dataset
   
 }
@@ -120,12 +120,12 @@ if(cond==FALSE) {
 
 if(nchar(schema_effect_allele_freq)==0) {
   
-  source("process_tables_bq.r") # annotates eaf with ukb eaf
+  source("prep/process_tables_bq.r") # annotates eaf with ukb eaf
   process_tables_bq() # script process data in BQ to format and store in a separate bq dataset (<dataset>_gsmr)
   
 } else {
   
-  source("process_tables_bq_noukbaf.r")
+  source("prep/process_tables_bq_noukbaf.r")
   process_tables_bq_noukbaf() # script process data in BQ to format and store in a separate bq dataset (<dataset>_gsmr)
   
 }
@@ -142,19 +142,19 @@ cond <- nrow(bqr_list_tables(projectId = project_id, datasetId = dataset_name3))
 
 if(cond==FALSE) {
 
-source("filter_p.r")
+source("prep/filter_p.r")
 
 filter_p()
 
 # Create a list of unique vars across all exposure GWASes
 
-source("create_unique_var_list.r")
+source("prep/create_unique_var_list.r")
 
 create_unique_var_list()
 
 # MATCHED OUTCOME TABLE
 
-source("curate_outcome.r")
+source("prep/curate_outcome.r")
 
 curate_outcome()
 
@@ -164,7 +164,7 @@ curate_outcome()
 
 ## EXPOSURES
 
-source("export_output_to_gcs_exposures.r")
+source("prep/export_output_to_gcs_exposures.r")
 
 export_output_to_gcs_exposures()
 
@@ -172,7 +172,7 @@ if(gb==TRUE) {
   
   gc_bucket <- output_gc_bucket
   
-  source("compose_and_delete_splits.r")
+  source("prep/compose_and_delete_splits.r")
   
   compose_and_delete_splits()
   
@@ -180,7 +180,7 @@ if(gb==TRUE) {
 
 ## OUTCOMES
 
-source("export_output_to_gcs_outcomes.r")
+source("prep/export_output_to_gcs_outcomes.r")
 
 export_output_to_gcs_outcomes()
 
@@ -188,7 +188,7 @@ if(gb==TRUE) {
   
   gc_bucket <- outcome_gc_bucket
   
-  source("compose_and_delete_splits.r")
+  source("prep/compose_and_delete_splits.r")
   
   compose_and_delete_splits()
   
