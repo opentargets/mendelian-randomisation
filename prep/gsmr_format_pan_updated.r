@@ -42,9 +42,40 @@ input2 <- gsub(paste("gs\\:\\/\\/", paste0(input1, "/"), sep = "|"), "", input_g
 
 gc <- gcs_list_objects(bucket = input1, prefix = input2) # fetch file list from the buckets
 
-cond <- nrow(bqr_list_tables(projectId = project_id, datasetId = dataset_name)) == nrow(gcs_list_objects(bucket = input1, prefix = input2))
+if(grepl(".parquet", gc$name)[1]==TRUE) {
+  
+  gc$url <- sapply(seq(gc$name), function (x) paste0("gs://", input1, "/", input2, "/", strsplit(gc$name[x], "/")[[1]][2]))
+  gc <- gc[!duplicated(gc$url),]
+  
+} else {
+  
+  gc$url <- paste0('gs://', input1, '/', gc$name) # annotate with GC URLs
+  
+}
 
-if(cond==FALSE) {
+# CREATE TABLE NAMES (in BQ and for GCS OUTPUT)
+
+l <- length(strsplit(gc$url[1], "/")[[1]])
+
+l2 <- length(strsplit(strsplit(gc$url[1], "/")[[1]][l], "\\.")[[1]])
+
+if (format_suffix==TRUE) {
+  
+  format_suffix <- paste0(".", strsplit(strsplit(gc$url[1], "/")[[1]][l], "\\.")[[1]][[l2]])
+  
+  tbl <- sapply(seq(gc$url), function (x) gsub(format_suffix, "", strsplit(gc$url[x], "/")[[1]][l])) # generating tbl names
+  
+} else {
+  
+  tbl <- sapply(seq(gc$url), function (x) strsplit(gc$url[x], "/")[[1]][l])  # generating tbl names
+  
+}
+
+tbl2 <- gsub("\\.", "_", tbl) # if filenames have ".", will change this to "underscore", other name will collide with the way BQ references project.dataset.table names
+
+number_of_exposures_to_load <- nrow(bqr_list_tables(projectId = project_id, datasetId = dataset_name)) == nrow(gcs_list_objects(bucket = input1, prefix = input2))
+
+if(number_of_exposures_to_load==FALSE) {
 
 if(parq==TRUE) {
   
@@ -60,9 +91,9 @@ if(parq==TRUE) {
   
 }
 
-cond <- nrow(bqr_list_tables(projectId = project_id, datasetId = dataset_name)) == nrow(gcs_list_objects(bucket = input1, prefix = input2))
+number_of_exposures_to_load <- nrow(bqr_list_tables(projectId = project_id, datasetId = dataset_name)) == nrow(gcs_list_objects(bucket = input1, prefix = input2))
 
-if(cond==FALSE) {
+if(number_of_exposures_to_load==FALSE) {
   print("not all tables were loaded")
   break
 }
@@ -114,9 +145,9 @@ if(schema=="autodetect") {
 
 # bqt <- paste(project_id, dataset_name2, tbl2, sep = ".") # building BQ table references
 
-cond <- nrow(bqr_list_tables(projectId = project_id, datasetId = dataset_name2)) == nrow(gcs_list_objects(bucket = input1, prefix = input2))
+number_of_exposures_between_bq_gcs <- nrow(bqr_list_tables(projectId = project_id, datasetId = dataset_name2)) == nrow(gcs_list_objects(bucket = input1, prefix = input2))
 
-if(cond==FALSE) {
+if(number_of_exposures_between_bq_gcs==FALSE) {
 
 if(nchar(schema_effect_allele_freq)==0) {
   
@@ -138,9 +169,9 @@ cat("tables processed in BQ")
 
 # source("loadLibraries_and_authenticate.r") # sometimes needs a re-authentication
 
-cond <- nrow(bqr_list_tables(projectId = project_id, datasetId = dataset_name3)) == nrow(bqr_list_tables(projectId = project_id, datasetId = dataset_name))
+number_of_filtered_exposures <- nrow(bqr_list_tables(projectId = project_id, datasetId = dataset_name3)) == nrow(bqr_list_tables(projectId = project_id, datasetId = dataset_name))
 
-if(cond==FALSE) {
+if(number_of_filtered_exposures==FALSE) {
 
 source("prep/filter_p.r")
 
@@ -164,6 +195,14 @@ curate_outcome()
 
 ## EXPOSURES
 
+output1 <- strsplit(output_gc_bucket, "/")[[1]][3] # main bucket name
+
+output2 <- gsub(paste("gs\\:\\/\\/", paste0(output1, "/"), sep = "|"), "", output_gc_bucket)
+
+number_of_filtered_exposures_exported <- nrow(bqr_list_tables(projectId = project_id, datasetId = paste0(dataset_name, "_gsmr_filtered"))) == nrow(gcs_list_objects(bucket = output1, prefix = output2))
+
+if(number_of_filtered_exposures_exported==FALSE) {
+
 source("prep/export_output_to_gcs_exposures.r")
 
 export_output_to_gcs_exposures()
@@ -178,7 +217,17 @@ if(gb==TRUE) {
   
 }
 
+}
+
 ## OUTCOMES
+
+outcome1 <- strsplit(outcome_gc_bucket, "/")[[1]][3] # main bucket name
+
+outcome2 <- gsub(paste("gs\\:\\/\\/", paste0(outcome1, "/"), sep = "|"), "", outcome_gc_bucket)
+
+number_of_filtered_outcomes_exported <- nrow(bqr_list_tables(projectId = project_id, datasetId = paste0("outcomes_", dataset_name, "_gsmr_filtered"))) == nrow(gcs_list_objects(bucket = outcome1, prefix = outcome2))
+
+if(number_of_filtered_outcomes_exported==FALSE) {
 
 source("prep/export_output_to_gcs_outcomes.r")
 
@@ -192,4 +241,6 @@ if(gb==TRUE) {
   
   compose_and_delete_splits()
   
+}
+
 }
