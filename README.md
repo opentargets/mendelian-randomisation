@@ -205,7 +205,7 @@ B) **On filtered MR SNP data**
 
 1. Although the MR analyses were done for both proteins and metabolites, the annotations were carried out only for the proteins to date. For metabolites, the next steps should be to:
 
-- generate an ensembl ID map for NIGHTINGALE (2021) (these maps containing a single or multiple genes linked to a metabolite have already been generated for KETTUNEN (2016), DRAISMA (2015), SHIN (2014)) - these will help annotate whether MR associations are cis, trans, or mixed. 
+- generate an ensembl ID map for NIGHTINGALE (2021) (these maps containing a single or multiple genes linked to a metabolite have already been generated for KETTUNEN (2016), DRAISMA (2015), SHIN (2014) - some R scripts on how I've done these using HMDB and GO provided in `ensid_maps/creating_metabolite_ensid_maps`) - these will help annotate whether metabolite MR associations are cis, trans, or mixed. 
 
 - perform annotation for metabolites
 
