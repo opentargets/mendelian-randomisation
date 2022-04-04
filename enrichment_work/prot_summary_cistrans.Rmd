@@ -1,0 +1,674 @@
+---
+title: "Pan-MR and cis-coloc associations"
+output:
+  html_document: default
+  pdf_document: default
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+author: Mohd Anisul Karim
+---
+
+
+```{r echo=T, include=F}
+library(dplyr)
+library(knitr)
+```
+
+```{r echo=F}
+dftbls <- function (x) {
+  f <- as.data.frame.matrix(x, stringsAsFactors = F)
+  f <- cbind(row.names(f), f)
+  row.names(f) <- NULL
+  names(f)[1] <- "Data"
+  return(f)
+}
+```
+
+# GSMR
+
+```{r echo=F}
+df <- readRDS("~/mr_prot_filtered_dataset_v1_v2.rds")
+
+df <- df[which(is.na(df$exp_out_coloc)),]
+
+tbl <- dftbls(table(df$Data, df$cis_trans))
+
+kable(tbl, caption = "Pan-MR associations (p < 0.0005)", align = 'c')
+```
+
+# cis-coloc
+
+```{r echo=F}
+df <- readRDS("~/mr_prot_filtered_dataset_v1_v2.rds")
+
+df <- df[which(is.na(df$exp_out_gsmr)),]
+
+tbl <- dftbls(table(df$Data, df$cis_trans))
+
+kable(tbl, caption = "cis-coloc associations (coloc_h4_h3 > 1)", align = 'c')
+```
+
+# GSMR + cis-coloc
+
+```{r echo=F}
+df <- readRDS("~/mr_prot_filtered_dataset_v1_v2.rds")
+
+tbl1 <- dftbls(table(df$Data, df$cis_trans))
+
+tbl <- dftbls(table(df$Data, df$cis_trans))
+
+kable(tbl, caption = "Pan-MR + cis-coloc associations", align = 'c')
+```
+
+# GSMR beta and MR egger correlation
+
+```{r echo=F}
+df <- readRDS("~/mr_prot_filtered_dataset_v1_v2.rds")
+
+df <- df[which(is.na(df$exp_out_coloc)),]
+
+df <- df[which(df$mr_egger_p < 0.05),]
+
+df <- df %>% select(bxy, mr_egger)
+
+with(df, plot(bxy, mr_egger, main="beta-beta correlation between GSMR and Egger estimate",
+   xlab="GSMR beta ", ylab="Egger beta ", pch=19))
+mtext(bquote(r^2 == .(round(cor(df$bxy, df$mr_egger), 2))), side=3)
+
+
+```
+
+# GSMR beta and MR Weighted Median beta correlation
+
+```{r echo=F}
+df <- readRDS("~/mr_prot_filtered_dataset_v1_v2.rds")
+
+df <- df[which(is.na(df$exp_out_coloc)),]
+
+df <- df[which(df$mr_wm_p < 0.05),]
+
+df <- df %>% select(bxy, mr_wm)
+
+with(df, plot(bxy, mr_wm, main="beta-beta correlation between GSMR and MR-WM estimate",
+   xlab="GSMR beta ", ylab="WM beta ", pch=19))
+mtext(bquote(r^2 == .(round(cor(df$bxy, df$mr_wm), 2))), side=3)
+
+
+```
+
+# Number tested vs. total GSMR
+# among test, how many sig cis, mixed, trans
+# what proportion were cis-MR? (12%)
+# What proportion of cis-MR had PAVs?
+
+```{r}
+# tested vs total
+
+df <- readRDS("~/mr_prot_unfiltered_dataset_v1_v2_without_egger.rds")
+
+dfgsmr <- df %>% filter(!is.na(exp_out_gsmr) & is.na(exp_out_coloc))
+
+tested <- dfgsmr %>% group_by(Data) %>% select(exposure) %>% distinct() %>% count()
+
+# among test, how many sig cis, mixed, trans
+
+dfgsmr_sig <- dfgsmr %>% filter(bxy_pval < 0.0005)
+
+tbl <- dftbls(with(dfgsmr_sig, table(Data, cis_trans_mr)))
+
+# tbl2 <- tbl %>%
+#    replace(is.na(.), 0) %>%
+#    mutate(Total = rowSums(across(where(is.numeric))))
+
+tbl2_total <- tbl %>%
+   select_if(is.numeric) %>% summarise_each(funs(sum))
+
+tbl2_total$Data <- "Total"
+
+tbl2_total <- tbl2_total %>% select(Data, cis, mixed, trans)
+
+tbl2 <- rbind(tbl, tbl2_total)
+
+# what proportion was cis?
+
+tbl3 <- tbl2_total %>%
+   replace(is.na(.), 0) %>%
+   mutate(Total = rowSums(across(where(is.numeric))))
+
+cisprop <- tbl3$cis/tbl3$Total # 12%
+
+# What proportion of cis-MR had PAVs?
+
+dfgsmr_sig_cis <- dfgsmr %>% filter(bxy_pval < 0.0005 & cis_trans_mr=="cis")
+
+pav <- dfgsmr_sig_cis %>% count(pav_cismr)
+
+pavprop <- pav$n[pav$pav_cismr=="Yes"]/(sum(pav$n))
+
+pavprop[1] # 21% (a fifth of cis-MRs are driven by PAVs)
+
+```
+
+# Number tested vs. total GSMR + coloc
+# among test, how many sig cis, mixed, trans
+# what proportion were cis-MR? (12%)
+# What proportion of cis-MR had PAVs?
+
+```{r}
+df <- readRDS("~/mr_prot_unfiltered_dataset_v1_v2_without_egger.rds")
+
+tested <- df %>% group_by(Data) %>% select(ensid) %>% distinct() %>% count()
+
+# among test, how many sig cis, mixed, trans
+
+df_sig <- df %>% filter(bxy_pval < 0.0005 | (bxy_pval < 0.0005 & coloc_h4_h3 > 1))
+
+tbl <- dftbls(with(df_sig, table(Data, cis_trans_mr)))
+
+tbl$n <- c(3394, 750, 8293, 10708, 30931, 1000, 3300)
+
+tbl <- tbl[order(tbl$n, decreasing = T),]
+
+# tbl2 <- tbl %>%
+#    replace(is.na(.), 0) %>%
+#    mutate(Total = rowSums(across(where(is.numeric))))
+
+tbl2_total <- tbl %>%
+   select_if(is.numeric) %>% summarise_each(funs(sum))
+
+tbl2_total$Data <- "Total"
+
+tbl2_total <- tbl2_total %>% select(Data, cis, mixed, trans)
+
+tbl2 <- rbind(tbl, tbl2_total)
+
+# tbl <- dftbls(table(df$Data, df$cis_trans))
+
+kable(tbl2, caption = "Pan-MR associations (p < 0.0005)", align = 'c')
+
+
+# what proportion was cis?
+
+tbl3 <- tbl2_total %>%
+   replace(is.na(.), 0) %>%
+   mutate(Total = rowSums(across(where(is.numeric))))
+
+cisprop <- tbl3$cis/tbl3$Total # 20%
+
+# What proportion of cis-MR had PAVs?
+
+df_sig_cis <- df_sig %>% filter(cis_trans_mr=="cis")
+
+pav <- df_sig_cis %>% count(pav_cismr)
+
+pavprop <- pav$n[pav$pav_cismr=="Yes"]/(sum(pav$n))
+
+pavprop[1] # 18% (a fifth of cis-MRs are driven by PAVs)
+
+```
+
+# Number of GSMR vs coloc
+# Number which has both GSMR and coloc
+
+```{r}
+df <- readRDS("~/mr_prot_unfiltered_dataset_v1_v2_without_egger.rds")
+
+df_sig <- df %>% filter(bxy_pval < 0.0005 | (bxy_pval < 0.0005 & coloc_h4_h3 > 1))
+
+dfgsmr <- df_sig %>% filter(!is.na(exp_out_gsmr) & is.na(exp_out_coloc))
+
+dfcoloc <- df_sig %>% filter(is.na(exp_out_gsmr) & !is.na(exp_out_coloc))
+
+dfgsmr_coloc <- df_sig %>% filter(!is.na(exp_out_gsmr) & !is.na(exp_out_coloc))
+
+```
+
+# multi-SNP gsmr %
+# multi-SNP gsmr sig %
+# MR-Egger/WM beta-beta corr
+
+```{r}
+df <- readRDS("~/mr_prot_filtered_dataset_v1_v2.rds")
+
+df_sig <- df %>% filter(bxy_pval < 0.0005 | (bxy_pval < 0.0005 & coloc_h4_h3 > 1))
+
+df_multisnp <- df_sig %>% filter(nsnp >= 3)
+
+# multi-SNP gsmr sig %
+
+prop_multi_snp <- nrow(df_multisnp)/nrow(df_sig) # 56%
+
+# MR egger
+
+df_egger <- df_multisnp %>% filter(mr_egger_p < 0.05) %>% select(bxy, mr_egger)
+
+prop_mr_egger <- nrow(df_egger)/nrow(df_multisnp) # 54%
+
+with(df_egger, plot(bxy, mr_egger, main="beta-beta correlation between GSMR and Egger estimate",
+   xlab="GSMR beta ", ylab="Egger beta ", pch=19))
+mtext(bquote(r^2 == .(round(cor(df_egger$bxy, df_egger$mr_egger), 2))), side=3)
+
+# MR weighted median
+
+df_wm <- df_multisnp %>% filter(mr_wm_p < 0.05) %>% select(bxy, mr_wm)
+
+prop_mr_wm <- nrow(df_wm)/nrow(df_multisnp) # 96%
+
+with(df_wm, plot(bxy, mr_wm, main="beta-beta correlation between GSMR and Weighted Median (WM)",
+   xlab="GSMR beta ", ylab="WM beta ", pch=19))
+mtext(bquote(r^2 == .(round(cor(df_wm$bxy, df_wm$mr_wm), 2))), side=3)
+```
+
+# examples of unique target-trait pairs that are MR sig but only some have coloc (reason to use GSMR in conjunction with coloc)
+
+```{r}
+df <- readRDS("~/mr_prot_unfiltered_dataset_v1_v2_without_egger.rds")
+
+df_sig <- df %>% filter(bxy_pval < 0.0005 | (bxy_pval < 0.0005 & coloc_h4_h3 > 1))
+
+df_sig_gsmr_coloc <- df_sig %>% filter(!is.na(exp_out_gsmr))
+
+eg <- df_sig_gsmr_coloc %>% tidyr::unchop(cols = c("outcome_trait_efo"))
+
+eg$key <- with(eg, paste0(ensid, "_", outcome_trait_efo))
+
+eg2 <- eg %>% group_by(key) %>% filter(!is.na(exp_out_coloc)) %>% select(key) %>% distinct()
+
+lst <- lapply(seq(eg2$key), function (x) {
+  
+  eg3 <- eg[which(eg$key==eg2$key[x]),]
+  
+  cond <- anyNA(eg3$exp_out_coloc)
+  
+  if (cond==TRUE) {
+    
+    lst <- eg3
+    
+  }
+  
+})
+
+lst2 <- do.call(rbind, lst)
+
+length(unique(lst2$key)) # 407 target-trait associations from different studies had MR association but only some of the studies had coloc
+
+eg3 <- lst2[which(lst2$key==lst2$key[75]),]
+```
+
+# does GSMR predict cis-coloc
+
+```{r}
+df <- readRDS("~/mr_prot_unfiltered_dataset_v1_v2_without_egger.rds")
+
+# df_sig <- df %>% filter(bxy_pval < 0.0005 | (bxy_pval < 0.0005 & coloc_h4_h3 > 1))
+
+df$mr <- with(df, ifelse(!is.na(exp_out_gsmr) & bxy_pval < 0.0005, "1_MR association", "2_No MR association"))
+
+df$coloc <- with(df, ifelse(!is.na(exp_out_coloc) & coloc_h4_h3 > 1, "1_Evidence of genetic colocalisation", "1_No evidence of genetic colocalisation"))
+
+test <- with(df, table(mr, coloc)) %>% fisher.test()
+
+cont_tbl <- dftbls(with(df, table(mr, coloc)))
+
+kable(cont_tbl, caption = "Can pan-MR associations predict cis-coloc?", align = 'c')
+
+
+```
+
+# replicable pQTL MR associations > asthma
+
+```{r}
+df <- readRDS("~/mr_prot_filtered_dataset_v1_v2.rds")
+
+df_sig <- df %>% filter(bxy_pval < 0.0005 | (bxy_pval < 0.0005 & coloc_h4_h3 > 1))
+
+df_sig2 <- df_sig %>% tidyr::unchop(cols = c("outcome_trait_efo"))
+
+df_sig2$key <- with(df_sig2, paste0(ensid, "_", outcome_trait_efo))
+
+df_sig2$key2 <- with(df_sig2, paste0(Data, "_", exposure, "_", outcome))
+
+df2 <- df_sig2 %>% group_by(key) %>% mutate(evidence = ifelse(length(unique(key2)) > 1 & !is.na(exp_out_coloc), "A", "B")) %>% ungroup()
+
+# Grade A evidence
+
+df3 <- df2[which(df2$evidence=="A"),]
+
+# eg <- df3[which(df3$key==df3$key[10]),]
+
+diseases <- df3[which(!is.na(df3$n_cases)),]
+
+asthma <- diseases[grep("Asthma", diseases$outcome_trait, ignore.case = T),]
+
+IL1RL1 <- diseases[which(diseases$ensid=="ENSG00000115602"),] %>% select(nsnp, varid_left, n_cases, Data, outcome, outcome_trait, or_bxy, or_lci_bxy, or_uci_bxy, bxy_pval, coloc_h4_h3) %>% distinct()
+
+target <- IL1RL1[order(IL1RL1$bxy_pval),]
+
+# plot
+
+ct <- tibble(study = "itepekimab (300 mg) - Asthma", cases = 73, or_bxy = 0.42, or_lci_bxy = 0.20, or_uci_bxy = 0.88)
+
+asthma <- tibble(study = "Asthma (MR-coloc)", cases = target$n_cases[1], or_bxy = target$or_bxy[1], or_lci_bxy = target$or_lci_bxy[1], or_uci_bxy = target$or_uci_bxy[1])
+
+ibd <- tibble(study = c("Crohn's Disease (MR-coloc)", "Inflammatory bowel disease (MR-coloc)"), cases = target$n_cases[c(27, 32)], or_bxy = target$or_bxy[c(27, 32)], or_lci_bxy = target$or_lci_bxy[c(27, 32)], or_uci_bxy = target$or_uci_bxy[c(27, 32)])
+
+df <- bind_rows(ct, asthma, ibd)
+
+rd <- function (x) {
+  round(x, 2)
+}
+
+df[,c("or_bxy", "or_lci_bxy", "or_uci_bxy")] <- lapply(df[,c("or_bxy", "or_lci_bxy", "or_uci_bxy")], rd)
+
+df$OR <- with(df, paste0(or_bxy, " (95% CI: ", or_lci_bxy, ", ", or_uci_bxy, ")"))
+
+df$cases <- as.character(df$cases)
+
+names(df) <- c("study", "cases", "mean", "lower", "upper", "OR")
+
+header <- tibble(study = "IL33 inhibition", OR = "OR (95% CI)", cases = "cases")
+
+df2 <- bind_rows(header, df)
+
+# Forest plot
+
+library(forestplot)
+
+# styles <- fpShapesGp(
+#   lines = list(
+#     gpar(col = "darkred"),
+#     gpar(col = "royalblue"),
+#     gpar(col = "darkred")
+#     ),
+#   box = list(
+#     gpar(fill = "darkred"),
+#     gpar(fill = "royalblue"),
+#     gpar(fill = "darkred")
+#   ) 
+# )
+
+# font <- "mono"
+# if (grepl("Ubuntu", Sys.info()["version"])) {
+#   font <- "HersheyGothicEnglish"
+# }
+
+df2 %>% 
+  forestplot(labeltext = c(study, cases, OR),
+             xlog = TRUE,
+             is.summary=c(TRUE, FALSE, FALSE, FALSE, FALSE),
+             hrzl_lines = list("2" = gpar(lty = 2), 
+                               "1" = gpar(lwd = 1, columns = 1:4, col = "#000044")),
+             xlab = "Odds ratio (95% CI)",
+             txt_gp = fpTxtGp(summary = gpar(fontface = "bold")),
+             col = fpColors(box = "royalblue",
+                            line = "darkblue",
+                            summary = "royalblue"))
+
+```
+
+# High confidence set
+
+```{r}
+library(dplyr)
+
+df <- readRDS("~/mr_prot_unfiltered_dataset_v1_v2_without_egger.rds")
+
+# removing Anderson CA studies (problematic effect estimate directions for a few variants)
+
+# to_remove <- c("GCST000964", 
+
+th <- df %>% filter(bxy_pval < 0.0005 & coloc_h4 > 0.8 & !is.na(n_cases))
+
+# th$outcome_trait_efo <- as.character(th$outcome_trait_efo)
+
+# th1 <- th %>% tidyr::unchop(cols = c("outcome_trait_efo"))
+
+th <- th %>% tidyr::unchop(cols = c("outcome_trait_efo")) # this will duplicate target-trait pairs but will enable more effect matching
+
+th$key <- with(th, paste0(ensid, "_", outcome_trait_efo))
+
+# th$key2 <- with(th, paste0(Data, "_", outcome))
+# 
+# th2 <- th %>% group_by(key) %>% mutate(evidence = ifelse(length(unique(key2)) > 1, "A", "B")) %>% ungroup()
+# 
+# # Grade A evidence
+# 
+# th3 <- th2 %>% filter(evidence=="A")
+
+th$protein_therapeutic_direction <- with(th, ifelse(sign(bxy)==1, "lower_protein_levels", "higher_protein_levels")) # if higher protein, higher risk - then lower protein levels are therapeutic
+
+th$coloc_pval <- with(th, coloc_h4_h3/bxy_pval) # an arbitrary metric to select, for a given trait, the study with the highest coloc_h4_h3 and lowest pval.
+
+th2 <- th %>% group_by(key) %>% mutate(protein_datasets = list(paste(sort(unique(Data)),collapse="; ")),
+                                       outcome_datasets = list(paste(sort(unique(outcome)),collapse="; "))) %>% ungroup()
+
+th4 <- th2 %>% group_by(key) %>% filter(coloc_pval==max(coloc_pval)) %>% ungroup() # still retaining duplicate target-trait pairs, when finalising the dataset, group_by(outcome_trait) %>% mutate(outcome_trait_efo = list(paste(sort(unique(outcome_trait_efo)),collapse=", ")))
+
+therapeutic_ensid <- unique(th4$ensid)
+
+# adverse effects column
+
+adv <- df %>% filter(bxy_pval < 0.0005 & !is.na(n_cases)) %>% filter(ensid %in% therapeutic_ensid)
+
+# adv$outcome_trait_efo <- as.character(adv$outcome_trait_efo)
+
+adv <- adv %>% tidyr::unchop(cols = c("outcome_trait_efo"))
+
+adv$key <- with(adv, paste0(ensid, "_", outcome_trait_efo))
+
+adv$protein_adverse_direction <- with(adv, ifelse(sign(bxy)==1, "higher_protein_levels", "lower_protein_levels"))
+
+th4_a <- th4 %>% select(ensid, outcome, hgnc_protein, outcome_trait, protein_therapeutic_direction, key)
+
+adv_a <- adv %>% select(ensid, outcome, hgnc_protein, outcome_trait, protein_adverse_direction, coloc_h4, varid_left, bxy, bxy_se, bxy_pval, key)
+
+th4_adv <- merge(th4_a, adv_a, by = "ensid")
+
+th4_adv$adverse_effect <- with(th4_adv, ifelse(protein_therapeutic_direction==protein_adverse_direction, "Yes", "No"))
+
+th4_adv2 <- th4_adv %>% filter(adverse_effect=="Yes")
+
+th4_adv2$coloc_h4_ae <- with(th4_adv2, ifelse(!is.na(coloc_h4), paste0(outcome_trait.y, "_", coloc_h4, "_", varid_left), "no_coloc"))
+
+th4_adv2$bxy_ae <- with(th4_adv2, ifelse(!is.na(bxy), paste0(outcome_trait.y, "_", bxy, "_", bxy_se), "no_beta"))
+
+# th4_adv2$key <- with(th4_adv2, paste0(ensid, "_", outcome_trait.x))
+
+th4_adv3 <- th4_adv2 %>% group_by(key.x) %>% mutate(ae = list(paste(sort(unique(outcome_trait.y)),collapse="; ")), ae_studies = list(paste(sort(unique(outcome.y)),collapse="; ")),
+                                                    coloc_h4_h3_ae = list(paste(sort(unique(coloc_h4_ae)),collapse="; ")), bxy_ae = list(paste(sort(unique(bxy_ae)),collapse="; "))) %>% ungroup() %>% select(ensid, outcome_trait.x, ae, ae_studies, coloc_h4_ae, bxy_ae, key.x) %>% distinct()
+
+# th4$key <- with(th4, paste0(ensid, "_", outcome_trait))
+
+pos <- match(th4$key, th4_adv3$key.x) 
+
+# attaching adverse effect column to original dataset
+
+th4$adverse_effects <- with(th4, ifelse(!is.na(pos), th4_adv3$ae[pos], NA))
+
+th4$adverse_effects_studies <- with(th4, ifelse(!is.na(pos), th4_adv3$ae_studies[pos], NA))
+
+th4$adverse_effects_coloc_h4 <- with(th4, ifelse(!is.na(pos), th4_adv3$coloc_h4_ae[pos], NA))
+
+th4$adverse_effects_bxy <- with(th4, ifelse(!is.na(pos), th4_adv3$bxy_ae[pos], NA))
+
+# mechanisms
+
+mech <- df %>% filter(bxy_pval < 0.0005 & coloc_h4 > 0.6 & is.na(n_cases)) %>% filter(ensid %in% therapeutic_ensid)
+
+mech <- mech %>% tidyr::unchop(cols = c("outcome_trait_efo"))
+
+mech$key <- with(mech, paste0(ensid, "_", outcome_trait_efo))
+
+mech <- mech[which(!duplicated(mech$key)),]
+
+# mech$protein_mech_direction <- with(mech, ifelse(sign(bxy)==1, paste0("higher ", outcome_trait), paste0("lower ", outcome_trait)))
+
+th4_a <- th4 %>% select(ensid, outcome, hgnc_protein, outcome_trait, protein_therapeutic_direction, key)
+
+mech_a <- mech %>% select(ensid, outcome, hgnc_protein, outcome_trait, coloc_h4, varid_left, bxy, bxy_se, bxy_pval, key)
+
+th4_mech <- merge(th4_a, mech_a, by = "ensid")
+
+th4_mech$bxy_mech <- with(th4_mech , ifelse(protein_therapeutic_direction=="lower_protein_levels", -bxy, bxy))
+
+th4_mech$mech_direction <- with(th4_mech, ifelse(sign(bxy_mech)==1, paste0("higher ", outcome_trait.y), paste0("lower ", outcome_trait.y)))
+
+# th4_mech2 <- th4_mech %>% filter(mecherse_effect=="Yes")
+
+th4_mech$coloc_h4_mech <- with(th4_mech, ifelse(!is.na(coloc_h4), paste0(outcome_trait.y, "_", coloc_h4, "_", varid_left), "no_coloc"))
+
+th4_mech$bxy_mech2 <- with(th4_mech, ifelse(!is.na(bxy_mech), paste0(outcome_trait.y, "_", bxy_mech, "_", bxy_se), "no_beta"))
+
+# th4_mech2$key <- with(th4_mech2, paste0(ensid, "_", outcome_trait.x))
+
+th4_mech2 <- th4_mech %>% group_by(key.x) %>% mutate(mech = list(paste(sort(unique(mech_direction)),collapse="; ")), mech_studies = list(paste(sort(unique(outcome.y)),collapse="; ")),
+                                                    coloc_h4_mech = list(paste(sort(unique(coloc_h4_mech)),collapse="; ")), bxy_mech2 = list(paste(sort(unique(bxy_mech2)),collapse="; "))) %>% ungroup() %>% select(ensid, outcome_trait.x, mech, mech_studies, coloc_h4_mech, bxy_mech2, key.x) %>% distinct()
+
+# th4$key <- with(th4, paste0(ensid, "_", outcome_trait))
+
+pos <- match(th4$key, th4_mech2$key.x) 
+
+# attaching adverse effect column to original dataset
+
+th4$mech <- with(th4, ifelse(!is.na(pos), th4_mech2$mech[pos], NA))
+
+th4$mech_studies <- with(th4, ifelse(!is.na(pos), th4_mech2$mech_studies[pos], NA))
+
+th4$mech_coloc_h4 <- with(th4, ifelse(!is.na(pos), th4_mech2$coloc_h4_mech[pos], NA))
+
+th4$mech_bxy <- with(th4, ifelse(!is.na(pos), th4_mech2$bxy_mech2[pos], NA))
+
+# nullToNA <- function(x) {
+#     x[sapply(x, is.null)] <- NA
+#     return(x)
+# }
+# 
+# th5 <- nullToNA(th4)
+
+# new df
+
+# possible mechanisms
+
+# mech <- df %>% filter(bxy_pval < 0.0005 & coloc_h4_h3 > 1 & coloc_h4 > 0.6 & is.na(n_cases))
+# 
+# mech$outcome_trait_efo <- as.character(mech$outcome_trait_efo)
+# 
+# mech$key <-
+
+# th1 <- th %>% tidyr::unchop(cols = c("outcome_trait_efo"))
+
+# th$key <- with(th, paste0(ensid, "_", outcome_trait_efo))
+
+th4$key2 <- with(th4, paste0(outcome_trait, "_", outcome_datasets))
+
+th5 <- th4 %>% group_by(key2) %>% mutate(outcome_trait_efo = list(paste(sort(unique(outcome_trait_efo)),collapse=", "))) %>% ungroup() %>% select(ensid, hgnc_protein, outcome_trait, outcome_trait_efo, protein_therapeutic_direction, protein_datasets, outcome_datasets, adverse_effects, adverse_effects_studies, adverse_effects_coloc_h4, adverse_effects_bxy, mech, mech_studies, mech_coloc_h4, mech_bxy, pav_cismr, varid_left, coloc_h4_h3, coloc_h4, nsnp, cis_trans_mr, bxy, bxy_se, bxy_pval, exp_out_gsmr_coloc) %>% distinct()
+
+saveRDS(th5, "high_confidence_targets.rds")
+```
+
+# IBD high confidence set - clinical trials check
+
+```{r}
+# high confidence set
+
+hc <- readRDS("high_confidence_targets.rds")
+
+# IBD targets
+
+ibd_labels <- c("bowel", "ulcerative", "crohn")
+
+ibd <- hc[grep(paste(ibd_labels, collapse = "|"), hc$outcome_trait, ignore.case = T),]
+
+# Clinical trials
+
+source("~/download_notstopped_trials_bq.R")
+
+drugs$key <- with(drugs, paste0(ensid, "_", diseaseFromSourceMappedId))
+
+drugs$phase_rev <- gsub("[^0-9.-]", "", drugs$Phase)
+
+drugs$phase_rev <- with(drugs, ifelse(phase_rev=="12", "2", phase_rev)) # if phase 1/phase 2, label as phase 2
+
+drugs$phase_rev <- with(drugs, ifelse(phase_rev=="23", "3", phase_rev)) # if phase 2/phase 3, label as phase 3
+
+drugs$phase_rev <- as.integer(drugs$phase_rev)
+
+drugs2 <- drugs %>% group_by(key) %>% filter(phase_rev==max(phase_rev))
+
+# annotating ibd dataset with clinical trials
+
+drugs_ensid <- drugs2 %>% group_by(ensid) %>% filter(phase_rev==max(phase_rev))
+
+pos_ensid <- match(ibd$ensid, drugs_ensid$ensid)
+
+ibd$chemblid_maxphase <- with(ibd, ifelse(!is.na(pos_ensid), paste0(drugs_ensid$chembl_id[pos_ensid], "_", drugs_ensid$phase_rev[pos_ensid]), NA)) # if target is a drug target, what is the max phase it has reached for any indication?
+
+ibd$key <- with(ibd, paste0(ensid, "_", outcome_trait_efo))
+
+pos_key <- match(ibd$key, drugs2$key)
+
+ibd$chemblid_maxphase_indication_match <- with(ibd, ifelse(!is.na(pos_key),  paste0(drugs2$chembl_id[pos_key], "_", drugs2$phase_rev[pos_key]), NA)) # if target is a drug target for IBD, what is the max phase it has reached for the IBD indication?
+
+ibd$drug_target_status <- with(ibd, ifelse(is.na(chemblid_maxphase), "Novel Target", ifelse(!is.na(chemblid_maxphase_indication_match), "Supports drug target-indication", "Repositioning opportunity")))
+
+ibd$exp_out_gsmr_coloc <- NULL
+
+ibd$key <- NULL
+
+ibd2 <- ibd %>% rowwise() %>% mutate(across(where(is.list), toString)) # converting list to character class, otherwise wouldn't be able to save as tsv
+
+# targets_with_no_ae <- unique(ibd2$hgnc_protein[which(ibd2$adverse_effects=="NA")])
+
+#sapply(seq(list_to_char), function (x) { ibd[,list_to_char[x]] <<- as.character(ibd[,list_to_char[x]])})
+
+write.table(ibd2, file=gzfile("~/ibd_high_confidence_targets_mrcoloc.tsv.gz"), sep = "\t", quote = F, row.names = F)
+
+```
+
+# All disease high confidence set - clinical trials check
+
+```{r}
+# high confidence set
+
+hc <- readRDS("high_confidence_targets.rds")
+
+# Clinical trials
+
+source("~/download_notstopped_trials_bq.R")
+
+drugs$key <- with(drugs, paste0(ensid, "_", diseaseFromSourceMappedId))
+
+drugs$phase_rev <- gsub("[^0-9.-]", "", drugs$Phase)
+
+drugs$phase_rev <- with(drugs, ifelse(phase_rev=="12", "2", phase_rev)) # if phase 1/phase 2, label as phase 2
+
+drugs$phase_rev <- with(drugs, ifelse(phase_rev=="23", "3", phase_rev)) # if phase 2/phase 3, label as phase 3
+
+drugs$phase_rev <- as.integer(drugs$phase_rev)
+
+drugs2 <- drugs %>% group_by(key) %>% filter(phase_rev==max(phase_rev))
+
+# annotating ibd dataset with clinical trials
+
+drugs_ensid <- drugs2 %>% group_by(ensid) %>% filter(phase_rev==max(phase_rev))
+
+pos_ensid <- match(hc$ensid, drugs_ensid$ensid)
+
+hc$chemblid_maxphase <- with(hc, ifelse(!is.na(pos_ensid), paste0(drugs_ensid$chembl_id[pos_ensid], "_", drugs_ensid$phase_rev[pos_ensid]), NA)) # if target is a drug target, what is the max phase it has reached for any indication?
+
+hc$key <- with(hc, paste0(ensid, "_", outcome_trait_efo))
+
+pos_key <- match(hc$key, drugs2$key)
+
+hc$chemblid_maxphase_indication_match <- with(hc, ifelse(!is.na(pos_key),  paste0(drugs2$chembl_id[pos_key], "_", drugs2$phase_rev[pos_key]), NA))
+
+hc$drug_target_status <- with(hc, ifelse(is.na(chemblid_maxphase), "Novel Target", ifelse(!is.na(chemblid_maxphase_indication_match), "Supports drug target-indication", "Repositioning opportunity")))
+
+hc$exp_out_gsmr_coloc <- NULL
+
+hc$key <- NULL
+
+hc2 <- hc %>% rowwise() %>% mutate(across(where(is.list), toString)) # converting list to character class, otherwise wouldn't be able to save as tsv
+
+write.table(hc2, file=gzfile("~/hc_high_confidence_targets_mrcoloc.tsv.gz"), sep = "\t", quote = F, row.names = F)
+```
+

@@ -1,0 +1,174 @@
+---
+title: "Is there added value in integrating pQTL MR in the platform?"
+author: "Mohd Anisul Karim"
+output:
+  pdf_document:
+    includes:
+      in_header: "wrap-code.tex"
+  html_document: default
+urlcolor: red
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+---
+
+```{r setup, include=FALSE} 
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+```
+
+# Loading MR data
+
+```{r}
+# Load libraries
+
+library(dplyr)
+library(bigrquery)
+
+# Target-trait pairs supported by MR
+
+df_mr_filtered <- data.table::fread("~/prot_mr_filtered.tsv", stringsAsFactors = F)
+
+df_mr_filtered$outcome_trait_efo[df_mr_filtered$outcome_trait_efo==""] <- NA
+
+df_mr <- df_mr_filtered %>% tidyr::separate_rows(outcome_trait_efo, sep = ",") %>% filter(!is.na(outcome_trait_efo) & !is.na(exp_out_gsmr)) %>% select(ensid, outcome_trait_efo) %>% distinct()
+
+df_mr$key <- with(df_mr, paste0(ensid, "_", outcome_trait_efo))
+
+```
+
+# Comparing MR with L2G
+
+```{r}
+# Target-trait pairs supported by L2G 
+
+project <- "open-targets-genetics" # replace this with your project ID
+
+qry <- "SELECT DISTINCT
+  genetic.diseaseId as disease,
+  genetic.targetId as target,
+  genetic.score as score
+FROM
+  `open-targets-prod.platform.associationByDatasourceDirect` genetic
+WHERE
+  datasourceId='ot_genetics_portal'"
+
+l2g_tbl <- bq_project_query(project, qry) %>% bq_table_download()
+
+# Joining MR with L2G data
+
+l2g_tbl$key <- with(l2g_tbl, paste0(target, "_", disease))
+
+mr_l2g <- merge(l2g_tbl, df_mr, by = "key")
+
+mean_mr_l2g_full <- mean(mr_l2g$score) 
+
+# are the two means significantly different?
+
+l2g_tbl2 <- l2g_tbl %>% filter(!key %in% df_mr$key) # filtering out the MR supported target-traits from the main L2G data so I can compare the means
+
+mean_l2g_tbl_full <- mean(l2g_tbl2$score)
+
+sigmean_l2g_full <- t.test(mr_l2g$score, l2g_tbl2$score)
+```
+
+# Comparing MR with L2G < 0.5
+
+```{r}
+library(bigrquery)
+library(dplyr)
+
+project <- "open-targets-genetics" # replace this with your project ID
+
+qry <- "SELECT DISTINCT
+  genetic.diseaseId as disease,
+  genetic.targetId as target,
+  genetic.score as score
+FROM
+  `open-targets-prod.platform.associationByDatasourceDirect` genetic
+WHERE
+  datasourceId='ot_genetics_portal' AND score < 0.5"
+
+l2g_tbl_0.5 <- bq_project_query(project, qry) %>% bq_table_download()
+
+l2g_tbl_0.5$key <- with(l2g_tbl_0.5, paste0(target, "_", disease))
+
+mr_l2g <- merge(l2g_tbl_0.5, df_mr, by = "key")
+
+mean_mr_l2g_0.5 <- mean(mr_l2g$score) # 0.204
+
+# are the two means significantly different?
+
+l2g_tbl_0.52 <- l2g_tbl_0.5 %>% filter(!key %in% df_mr$key) # filtering out the MR supported target-traits from the main L2G data so I can compare the means
+
+mean_l2g_tbl_0.5 <- mean(l2g_tbl_0.5$score)
+
+sigmean_l2g_0.5 <- t.test(mr_l2g$score, l2g_tbl_0.5$score)
+
+```
+
+# Comparing MR with non-genetically supported target-trait pairs
+
+```{r}
+library(bigrquery)
+library(dplyr)
+
+project <- "open-targets-genetics" # replace this with your project ID
+
+qry <- "# Creating a table of target-trait pairs that don't have genetic support at all
+
+SELECT DISTINCT
+  nongenetic.diseaseId as disease,
+  nongenetic.targetId as target,
+  overall.score as score,
+  nongenetic.datatypeId
+FROM
+  `open-targets-prod.platform.associationByDatasourceDirect` nongenetic
+LEFT JOIN 
+    `open-targets-prod.platform.associationByOverallDirect` overall
+ON
+    nongenetic.targetId = overall.targetId AND nongenetic.diseaseId = overall.diseaseId
+WHERE
+  nongenetic.datatypeId!='genetic_association'"
+
+tbl <- bq_project_query(project, qry) %>% bq_table_download()
+
+# merge non-genetic tbl with MR table
+
+tbl$key <- with(tbl, paste0(target, "_", disease))
+
+mr_tbl <- merge(tbl, df_mr, by = "key") # 2036 unique target-trait pairs out of 186,4814, so only covers 0.1% of target-trair pairs with non-genetical support
+
+mean_mr_tbl <- mean(mr_tbl$score)
+
+# are the two means significantly different?
+
+tbl2 <- tbl %>% filter(!key %in% df_mr$key) # filtering out the MR supported target-traits from the main data so I can compare the means
+
+mean_tbl2 <- mean(tbl2$score)
+
+sigmean_tbl <- t.test(mr_tbl$score, tbl2$score)
+
+```
+
+# Summary
+
+## MR with full L2G
+
+- There are `r nrow(df_mr)` unique target-trait pairs supported by MR evidence irrespective of genetic colocalisation.
+
+- Only `r nrow(mr_l2g)` out of `r nrow(l2g_tbl)` target-trait pairs overlap with L2G (`r round(nrow(mr_l2g)/nrow(l2g_tbl)*100, 2)`% of L2G).
+
+- The mean L2G score of the overlapping dataset with MR evidence is `r round(mean_mr_l2g_full, 2)`. When compared to the mean L2G score of the whole L2G dataset without the overlaps - that is `r round(mean_l2g_tbl_full, 2)`, there is evidence of a significant difference (t-test p-value = `r sigmean_l2g_full$p.value`). 
+
+## MR with L2G < 0.5
+
+- `r nrow(l2g_tbl_0.5)` out of `r nrow(l2g_tbl)` target-trait pairs (`r round(nrow(l2g_tbl_0.5)/nrow(l2g_tbl)*100, 2)`%) have L2G < 0.5
+
+- There are `r nrow(mr_l2g)` target-trait pairs (10% of MR target-trait pairs) out of `r nrow(l2g_tbl_0.5)` target-trait pairs (`r round(nrow(mr_l2g)/nrow(l2g_tbl_0.5)*100, 2)`% of L2G < 0.5 target-trait pairs) where L2G < 0.5 and where pQTL MR can help prioritise the right effector gene.
+
+- The mean L2G score of the overlapping dataset with MR evidence is `r round(mean_mr_l2g_0.5, 2)`. When compared to the mean L2G score of the L2G < 0.5 dataset without the overlaps - that is `r round(mean_l2g_tbl_0.5, 2)`, there is evidence of a significant difference (t-test p-value = `r sigmean_l2g_0.5$p.value`). 
+
+## MR with non-genetically supported target-trait pairs
+
+- `r nrow(mr_tbl)` unique target-trait pairs out of `r nrow(tbl)` (`r round(nrow(mr_tbl)/nrow(tbl)*100,2)`%) that are not supported by 'genetic_association' (but supported by other sources of evidence in the platform) are supported by MR
+
+- The mean overall score (not L2G score) of the `r nrow(mr_tbl)` target-trait pairs is `r round(mean_mr_tbl, 2)`. When compared to the mean overall score of non-genetically supported (but not MR supported) target-trait pairs - that is `r round(mean_tbl2, 2)`, there is evidence of a significant difference (t-test p-value = `r sigmean_tbl$p.value`). 
+

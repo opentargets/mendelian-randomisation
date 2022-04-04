@@ -1,0 +1,184 @@
+---
+title: "Clinical trial checks for therapeutic direction match with pQTL MR-colocs"
+author: "Mohd Anisul Karim"
+output:
+  pdf_document:
+    includes:
+      in_header: "wrap-code.tex"
+  html_document: default
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+---
+
+```{r echo=T, include=F}
+library(dplyr)
+```
+
+# Load high confidence dataset
+
+```{r}
+hc <- readRDS("high_confidence_targets.rds")
+```
+
+# load clinical trials dataset
+
+```{r}
+# Clinical trials
+
+source("~/download_notstopped_trials_bq.R")
+
+drugs$key <- with(drugs, paste0(ensid, "_", diseaseFromSourceMappedId))
+
+drugs$phase_rev <- gsub("[^0-9.-]", "", drugs$Phase)
+
+drugs$phase_rev <- with(drugs, ifelse(phase_rev=="12", "2", phase_rev)) # if phase 1/phase 2, label as phase 2
+
+drugs$phase_rev <- with(drugs, ifelse(phase_rev=="23", "3", phase_rev)) # if phase 2/phase 3, label as phase 3
+
+drugs$phase_rev <- as.integer(drugs$phase_rev)
+
+drugs2 <- drugs %>% group_by(key) %>% filter(phase_rev==max(phase_rev)) # to match for highest phase clinical trial for a given target-trait pair
+
+drugs_ensid <- drugs2 %>% group_by(ensid) %>% filter(phase_rev==max(phase_rev)) # to match for highest phase of clinical trial for a given target
+```
+
+
+# IBD high confidence set - clinical trials check
+
+```{r}
+# IBD targets
+
+ibd_labels <- c("bowel", "ulcerative", "crohn")
+
+ibd <- hc[grep(paste(ibd_labels, collapse = "|"), hc$outcome_trait, ignore.case = T),]
+
+ibd <- ibd %>% tidyr::separate_rows(outcome_trait_efo, sep = ", ")
+
+pos_ensid <- match(ibd$ensid, drugs_ensid$ensid)
+
+ibd$chemblid_maxphase <- with(ibd, ifelse(!is.na(pos_ensid), paste0(drugs_ensid$chembl_id[pos_ensid], "_", drugs_ensid$phase_rev[pos_ensid]), NA)) # if target is a drug target, what is the max phase it has reached for any indication?
+
+ibd$key <- with(ibd, paste0(ensid, "_", outcome_trait_efo))
+
+pos_key <- match(ibd$key, drugs2$key)
+
+ibd$chemblid_maxphase_indication_match <- with(ibd, ifelse(!is.na(pos_key),  paste0(drugs2$chembl_id[pos_key], "_", drugs2$phase_rev[pos_key]), NA)) # if target is a drug target for IBD, what is the max phase it has reached for the IBD indication?
+
+ibd2 <- ibd %>% group_by(key) %>% mutate(nct = list(paste(sort(unique(drugs2$CT[grep(key, drugs2$key)])),collapse="; ")))
+
+ibd2$drug_target_status <- with(ibd, ifelse(is.na(chemblid_maxphase), "Novel Target", ifelse(!is.na(chemblid_maxphase_indication_match), "Supports drug target-indication", "Repositioning opportunity")))
+
+ibd2$exp_out_gsmr_coloc <- NULL
+
+ibd2$key <- NULL
+
+ibd3 <- ibd2 %>% rowwise() %>% mutate(across(where(is.list), toString)) # converting list to character class, otherwise wouldn't be able to save as tsv
+
+nctlst <- ibd3$nct[which(ibd3$nct!="")]
+
+# MANUAL CHECKING
+
+direction_match <- c("Yes", "Yes", "Yes")
+
+nctdf <- data.frame(nctlst = nctlst, therapeutic_direction_match = direction_match, stringsAsFactors = F)
+
+# Only three targets had NCTs but on manual checking, although all drug MoA matched the therapeutic direction of the protein for IBD, none of them provided CT estimates to compare with.
+
+pos <- match(ibd3$nct, nctdf$nctlst)
+
+ibd3$therapeutic_direction_match <- with(ibd3, ifelse(!is.na(pos), nctdf$therapeutic_direction_match[pos], NA)) 
+
+# knitr::kable(ibd_ct, caption = "IBD: pQTL and clinical trials therapeutic directions", align = 'c')
+
+write.table(ibd3, file=gzfile("~/ibd_high_confidence_targets_mrcoloc_ctcheck.tsv.gz"), sep = "\t", quote = F, row.names = F)
+```
+
+# Atopic dermatitis, eczema, and asthma high confidence set - clinical trials check
+
+```{r}
+# ad targets
+
+ad_labels <- c("atopic", "dermatitis", "eczema", "allerg", "asthma") # MANUAL
+
+ad <- hc[grep(paste(ad_labels, collapse = "|"), hc$outcome_trait, ignore.case = T),]
+
+ad <- ad %>% tidyr::separate_rows(outcome_trait_efo, sep = ", ")
+
+pos_ensid <- match(ad$ensid, drugs_ensid$ensid)
+
+ad$chemblid_maxphase <- with(ad, ifelse(!is.na(pos_ensid), paste0(drugs_ensid$chembl_id[pos_ensid], "_", drugs_ensid$phase_rev[pos_ensid]), NA)) # if target is a drug target, what is the max phase it has reached for any indication?
+
+ad$key <- with(ad, paste0(ensid, "_", outcome_trait_efo))
+
+pos_key <- match(ad$key, drugs2$key)
+
+ad$chemblid_maxphase_indication_match <- with(ad, ifelse(!is.na(pos_key),  paste0(drugs2$chembl_id[pos_key], "_", drugs2$phase_rev[pos_key]), NA)) # if target is a drug target for ad, what is the max phase it has reached for the ad indication?
+
+ad2 <- ad %>% group_by(key) %>% mutate(nct = list(paste(sort(unique(drugs2$CT[grep(key, drugs2$key)])),collapse="; ")))
+
+ad2$drug_target_status <- with(ad, ifelse(is.na(chemblid_maxphase), "Novel Target", ifelse(!is.na(chemblid_maxphase_indication_match), "Supports drug target-indication", "Repositioning opportunity")))
+
+ad2$exp_out_gsmr_coloc <- NULL
+
+ad2$key <- NULL
+
+ad3 <- ad2 %>% rowwise() %>% mutate(across(where(is.list), toString)) # converting list to character class, otherwise wouldn't be able to save as tsv
+
+nctlst <- ad3$nct[which(ad3$nct!="")]
+
+# MANUAL CHECKING - not done, as there are 0 clinical trials that matched
+
+ad3$therapeutic_direction_match <- NA
+
+# ad3$key <- with(ad3, paste0(outcome_trait, "_", outcome_dataset))
+
+# knitr::kable(ad_ct, caption = "ad: pQTL and clinical trials therapeutic directions", align = 'c')
+
+# saveRDS(ad3, "~/ad_high_confidence_targets.rds") # expanded EFOs, so retaining duplicate target-trait pairs
+```
+
+# any disease - clinical trials check
+
+```{r}
+hc <- hc %>% tidyr::separate_rows(outcome_trait_efo, sep = ", ")
+
+pos_ensid <- match(hc$ensid, drugs_ensid$ensid)
+
+hc$chemblid_maxphase <- with(hc, ifelse(!is.na(pos_ensid), paste0(drugs_ensid$chembl_id[pos_ensid], "_", drugs_ensid$phase_rev[pos_ensid]), NA)) # if target is a drug target, what is the max phase it has reached for any indication?
+
+hc$key <- with(hc, paste0(ensid, "_", outcome_trait_efo))
+
+pos_key <- match(hc$key, drugs2$key)
+
+hc$chemblid_maxphase_indication_match <- with(hc, ifelse(!is.na(pos_key),  paste0(drugs2$chembl_id[pos_key], "_", drugs2$phase_rev[pos_key]), NA)) # if target is a drug target for hc, what is the max phase it has reached for the hc indication?
+
+hc2 <- hc %>% group_by(key) %>% mutate(nct = list(paste(sort(unique(drugs2$CT[grep(key, drugs2$key)])),collapse="; ")))
+
+hc2$drug_target_status <- with(hc, ifelse(is.na(chemblid_maxphase), "Novel Target", ifelse(!is.na(chemblid_maxphase_indication_match), "Supports drug target-indication", "Repositioning opportunity")))
+
+hc2$exp_out_gsmr_coloc <- NULL
+
+hc2$key <- NULL
+
+hc3 <- hc2 %>% rowwise() %>% mutate(across(where(is.list), toString)) # converting list to character class, otherwise wouldn't be able to save as tsv
+
+nctlst <- hc3[which(hc3$nct!=""),]
+
+# MANUAL CHECKING
+
+# direction_match <- c("Yes", "Yes", "Yes")
+
+# nctdf <- data.frame(nctlst = nctlst, therapeutic_direction_match = direction_match, stringsAsFactors = F)
+# 
+# # Only three targets had NCTs but on manual checking, although all drug MoA matched the therapeutic direction of the protein for hc, none of them provided CT estimates to compare with.
+# 
+# pos <- match(hc3$nct, nctdf$nctlst)
+# 
+# hc3$therapeutic_direction_match <- with(hc3, ifelse(!is.na(pos), nctdf$therapeutic_direction_match[pos], NA))
+
+# knitr::kable(hc_ct, caption = "hc: pQTL and clinical trials therapeutic directions", align = 'c')
+
+# write.table(hc3, file=gzfile("~/hc_high_confidence_targets_mrcoloc_ctcheck.tsv.gz"), sep = "\t", quote = F, row.names = F)
+
+write.table(nctlst, "~/hc_high_confidence_targets_mrcoloc_ctcheck.tsv", sep = "\t", quote = F, row.names = F)
+```
+
