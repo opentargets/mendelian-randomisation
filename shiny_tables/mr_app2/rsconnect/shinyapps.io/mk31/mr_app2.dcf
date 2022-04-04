@@ -1,0 +1,11 @@
+name: mr_app2
+title:
+username:
+account: mk31
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 5712209
+bundleId: 5632877
+url: https://mk31.shinyapps.io/mr_app2/
+when: 1646229355.09023
+lastSyncTime: 1646229355.09024

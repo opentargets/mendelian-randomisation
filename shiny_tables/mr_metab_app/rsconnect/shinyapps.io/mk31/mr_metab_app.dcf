@@ -1,0 +1,11 @@
+name: mr_metab_app
+title:
+username:
+account: mk31
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 4852465
+bundleId: 5130748
+url: https://mk31.shinyapps.io/mr_metab_app/
+when: 1634044867.54617
+lastSyncTime: 1634044867.54618

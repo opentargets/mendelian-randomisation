@@ -1,0 +1,896 @@
+---
+title: "Mendelian randomization & genetic colocalization using proteins as target-modulation biomarkers"
+author: "Mohd Anisul Karim"
+output:
+  pdf_document:
+    includes:
+      in_header: "wrap-code.tex"
+  html_document: default
+urlcolor: red
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+---
+
+```{r setup, include=FALSE} 
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+```
+
+# SUMMARY
+
+```{r echo=F, include=F}
+library(dplyr)
+library(pROC)
+library(knitr)
+library(ggplot2)
+library(stringr)
+library(caret)
+```
+
+```{r echo=F}
+# Load datasets
+
+df <- readRDS("~/mr_prot_unfiltered_dataset_v1_v2_without_egger.rds")
+
+df <- df[which(!is.na(df$ensid)),] # removing MR associations with probes that don't have an ensembl ID (e.g. BAGE3_6442_6_3, KIR* group of probes, a few HIV viral proteins from Suhre etc)
+
+mr <- df[which(!is.na(df$exp_out_gsmr)),] # indicator variable for pan-GSMR
+
+coloc <- df[which(!is.na(df$exp_out_coloc)),] # indicator variable for cis-coloc
+
+# Unfiltered MR
+
+mr2 <- mr %>% tidyr::unchop(cols = c("outcome_trait_efo"), keep_empty = TRUE) 
+
+# length(unique(mr2$outcome_trait[which(is.na(mr2$outcome_trait_efo))])) # there are about 398 traits with no EFOs, so creating adhoc EFOs for these traits using ensid_outcome (study id) combination so they can counted.
+
+mr2$ttpairs <- with(mr2, ifelse(!is.na(outcome_trait_efo), paste0(ensid, "_", outcome_trait_efo), paste0(ensid, "_", outcome)))
+
+## Unfiltered cis-coloc
+### Total no. of unique target-trait pairs in cis-coloc
+
+coloc2 <- coloc %>% tidyr::unchop(cols = c("outcome_trait_efo"), keep_empty = TRUE) 
+
+# length(unique(coloc2$outcome_trait[which(is.na(coloc2$outcome_trait_efo))])) # there are about 102 traits with no EFOs, so creating adhoc EFOs for these traits using ensid_outcome (study id) combination so they can counted.
+
+coloc2$ttpairs <- with(coloc2, ifelse(!is.na(outcome_trait_efo), paste0(ensid, "_", outcome_trait_efo), paste0(ensid, "_", outcome)))
+
+## Filtered pan-MR
+
+### Total no. of pan-MR associations at bxy < 0.0005
+
+mr3 <- mr2 %>% filter(bxy_pval < 0.0005)
+
+### Total no. of unique target-trait pairs in MR at bxy_pval < 0.0005
+
+# length(unique(mr3$ttpairs))
+
+## Filtered cis-coloc
+
+### Total no. of cis-coloc association at coloc_h4_h3 > 1 and coloc_h4 > 0.6
+
+coloc3 <- coloc2 %>% filter(coloc_h4 > 0.8)
+
+## High-confidence target-trait pairs pan-MR and cis-coloc (bxy_pval < 0.0005 & coloc_h4_h3 > 1 & coloc_h4 > 0.6)
+
+### Total no. of high confidence unique target-trait pairs
+
+df2 <- df %>% tidyr::unchop(cols = c("outcome_trait_efo"), keep_empty = TRUE) 
+
+df2$ttpairs <- with(df2, ifelse(!is.na(outcome_trait_efo), paste0(ensid, "_", outcome_trait_efo), paste0(ensid, "_", outcome)))
+
+df3 <- df2 %>% filter(bxy_pval < 0.0005 & coloc_h4 > 0.8)
+
+### Total no. of high confidence unique target-trait (binary) pairs
+
+df3_binary <- df2 %>% filter(bxy_pval < 0.0005 & coloc_h4 > 0.8 & !is.na(n_cases))
+
+# length(unique(df3_binary$ttpairs))
+
+## cis-MRs
+
+### Proportion of MR that is cis-MR (either from pan-MR or cis-colocs with MR estimates)
+
+cis <- df2 %>% filter(cis_trans_mr=="cis" & !is.na(bxy_pval))
+
+### Proportion of cis-MR associations at bxy_pval < 0.0005
+
+cis2 <- cis %>% filter(bxy_pval < 0.0005)
+
+df3 <- df2 %>% filter(bxy_pval < 0.0005) # using the whole dataset instead of mr dataset here, as I'm counting the cis-MRs from cis-coloc data as well
+
+### Proportion of cis-MR associations at bxy_pval < 0.0005 driven by protein-altering variants (PAVs) (https://m.ensembl.org/info/genome/variation/prediction/predicted_data.html - PAV classified if index or tagged SNPs (r2 > 0.6) are annotated by VEP as 'high' or 'moderate' impact on the tested target)
+
+pav <- cis2 %>% filter(pav_cismr=="Yes") # if any SNP PAVs
+
+## mixed-MRs
+
+### Proportion of MR that is mixed-MR (either from pan-MR or mixed-colocs with MR estimates)
+
+mixed <- df2 %>% filter(cis_trans_mr=="mixed" & !is.na(bxy_pval))
+
+### Proportion of mixed-MR associations at bxy_pval < 0.0005
+
+mixed2 <- mixed %>% filter(bxy_pval < 0.0005)
+
+## trans-MRs
+
+### Proportion of MR that is trans-MR (either from pan-MR or trans-colocs with MR estimates)
+
+trans <- df2 %>% filter(cis_trans_mr=="trans" & !is.na(bxy_pval))
+
+### Proportion of trans-MR associations at bxy_pval < 0.0005
+
+trans2 <- trans %>% filter(bxy_pval < 0.0005)
+
+```
+
+
+- **Unfiltered pan-MR**
+    - Total no. of pan-MR associations = \textcolor{blue}{`r nrow(mr)`}
+    - Total no. of unique targets tested in MR association = \textcolor{blue}{`r length(unique(na.omit(mr$ensid)))`}
+    - Total no. of unique target-trait pairs in MR = \textcolor{blue}{`r length(unique(mr2$ttpairs))`}
+
+- **Unfiltered cis-coloc**
+    - Total no. of cis-coloc associations = \textcolor{blue}{`r nrow(coloc)`}
+    - Total no. of unique targets tested in cis-coloc associations = \textcolor{blue}{`r length(unique(na.omit(coloc$ensid)))`}
+    - Total no. of unique target-trait pairs in cis-coloc = \textcolor{blue}{`r length(unique(coloc2$ttpairs))`}
+
+- **Filtered pan-MR**
+    - Total no. of pan-MR associations at bxy < 0.0005 = \textcolor{blue}{`r nrow(mr3)`}
+    - Total no. of unique target-trait pairs in MR at bxy_pval < 0.0005 = \textcolor{blue}{`r length(unique(mr3$ttpairs))`}
+    
+- **Filtered cis-coloc**
+    - Total no. of cis-coloc association at coloc_h4 > 0.8 = \textcolor{blue}{`r nrow(coloc3)`}
+    - Total no. of unique target-trait pairs in cis-coloc at coloc_h4 > 0.8 = \textcolor{blue}{`r length(unique(coloc3$ttpairs))`}
+
+- **High-confidence target-trait pairs (bxy_pval < 0.0005 & coloc_h4 > 0.8)**
+    - Total no. of high confidence unique target-trait pairs = \textcolor{blue}{`r length(unique(df3$ttpairs))`}
+    - Total no. of high confidence unique target-trait (binary) pairs = \textcolor{blue}{`r length(unique(df3_binary$ttpairs))`}
+
+- **cis-MR**
+    - Proportion (%) of MR that is cis-MR (either from pan-MR or cis-colocs with MR estimates) = \textcolor{blue}{`r round(nrow(cis)/nrow(df2)*100,2)`}
+    - Proportion (%) of MR at bxy_pval < 0.0005 that is cis-MR associations = \textcolor{blue}{`r round(nrow(cis2)/nrow(df3)*100,2)`}
+    - Proportion (%) of unique target-trait pairs in cis-MR associations at bxy_pval < 0.0005 compared to MR at bxy_pval < 0.0005 = \textcolor{blue}{`r round(length(unique(cis2$ttpairs))/length(unique(df3$ttpairs))*100,2)`}
+        - Proportion (%) of cis-MR associations at bxy_pval < 0.0005 with evidence of cis-colocalisation = \textcolor{blue}{`r round(nrow(cis2[which(cis2$coloc_h4_h3 > 1),])/nrow(cis2)*100,2)`}
+        - Proportion (%) of cis-MR associations at bxy_pval < 0.0005 driven by [protein-altering variants (PAVs)](https://m.ensembl.org/info/genome/variation/prediction/predicted_data.html) - PAV classified if index or tagged SNPs (r2 > 0.6) are annotated by VEP as 'high' or 'moderate' impact on the tested target) = \textcolor{blue}{`r round(nrow(pav)/nrow(cis2)*100,2)`}
+        - Proportion (%) of unique target-trait pairs in cis-MR associations at bxy_pval < 0.0005 driven by PAVs = \textcolor{blue}{`r round(length(unique(pav$ttpairs))/length(unique(cis2$ttpairs))*100,2)`}
+        - Median nSNPs in cis-MR associations at bxy_pval < 0.0005 driven by PAVs = \textcolor{blue}{`r median(pav$nsnp)`}
+
+- **mixed-MR**
+    - Proportion (%) of MR that is mixed-MR (either from pan-MR or cis-colocs with MR estimates) = \textcolor{blue}{`r round(nrow(mixed)/nrow(df2)*100,2)`}
+    - Proportion (%) of MR at bxy_pval < 0.0005 that is mixed-MR associations = \textcolor{blue}{`r round(nrow(mixed2)/nrow(df3)*100,2)`}
+    - Proportion (%) of mixed-MR associations at bxy_pval < 0.0005 with evidence of cis-colocalisation = \textcolor{blue}{`r round(nrow(mixed2[which(mixed2$coloc_h4_h3 > 1),])/nrow(mixed2)*100,2)`}
+    - Proportion (%) of unique target-trait pairs in mixed-MR associations at bxy_pval < 0.0005 compared to MR at bxy_pval < 0.0005 = \textcolor{blue}{`r round(length(unique(mixed2$ttpairs))/length(unique(df3$ttpairs))*100,2)`}
+    
+- **trans-MR**
+    - Proportion (%) of MR that is trans-MR (either from pan-MR or cis-colocs with MR estimates) = \textcolor{blue}{`r round(nrow(trans)/nrow(df2)*100,2)`}
+    - Proportion (%) of MR at bxy_pval < 0.0005 that is trans-MR associations = \textcolor{blue}{`r round(nrow(trans2)/nrow(df3)*100,2)`}
+    - Proportion (%) of trans-MR associations at bxy_pval < 0.0005 with evidence of cis-colocalisation = \textcolor{blue}{`r round(nrow(trans2[which(trans2$coloc_h4_h3 > 1),])/nrow(trans2)*100,2)`}
+    - Proportion (%) of unique target-trait pairs in trans-MR associations at bxy_pval < 0.0005 compared to MR at bxy_pval < 0.0005 = \textcolor{blue}{`r round(length(unique(trans2$ttpairs))/length(unique(df3$ttpairs))*100,2)`}
+
+
+# VALIDATION (in progress)
+
+## Enrichment of gold-standard target-trait pairs
+
+This analysis used a merged dataset (using unique ensembl_id and efo_id pairs) of mr-coloc with the gold-standard gene (GS genes) set downloaded from [here](https://raw.githubusercontent.com/opentargets/genetics-gold-standards/master/gold_standards/processed/gwas_gold_standards.191108.tsv)
+
+
+```{r echo=F}
+### Load dataset
+
+mr_gsg <- readRDS("~/mr_coloc_gold_standard_genes.rds") 
+
+# merged dataset (using ensembl_id_efo_id pairs) of mr-coloc with the gold-standard gene set downloaded from > "https://raw.githubusercontent.com/opentargets/genetics-gold-standards/master/gold_standards/processed/gwas_gold_standards.191108.tsv". Contains unique target-trait pairs.
+```
+
+## Plots for GS genes at different MR and coloc thresholds
+
+```{r echo=F}
+### Perform fisher tests at different MR and coloc thresholds
+
+# Creating thresholds and labels
+
+pvals <- c(0.05, 0.005, 0.0005, 0.00005, 0.000005)
+
+colocs <- c(0.2, 0.4, 0.6, 0.8, 0.9)
+
+labels <- c("Very weak", "Weak", "Moderate", "Strong", "Very strong")
+
+labels_mr <- paste0(labels, " (p < ", pvals, ")")
+
+labels_coloc <- paste0(labels, " (coloc_H4 > ", colocs, ")")
+
+labels_mr_coloc <- paste0(labels, " (coloc_H4 > ", colocs, ")", " (p < ", pvals, ")")
+
+# Conducting fisher's tests and extracting estimates
+
+lst <- parallel::mclapply(seq(pvals), function (x) {
+  
+  # Creating indicator variables
+  
+  pval <- pvals[x]
+  
+  coloc <- colocs[x]
+  
+  df <- get("mr_gsg")
+  
+  df$mr_association <- with(df, ifelse(bxy_pval < pval, "1_Associated via MR", "2_No evidence of MR association"))
+  
+  df$coloc_association <- with(df, ifelse(coloc_h4 > coloc, "1_Associated via coloc", "2_No evidence of shared coloc signal"))
+  
+  df$mr_coloc_association <- with(df, ifelse(coloc_h4 > coloc & bxy_pval < pval, "1_Associated via MR+coloc", "2_No evidence of MR+coloc association"))
+
+  df$gold_standard <- with(df, ifelse(!is.na(gold_standard_info.gene_id), "1_Yes", "2_No"))
+  
+  # 2 x 2 tables
+
+  tbl_mr <- with(df, table(mr_association, gold_standard))
+  
+  tbl_coloc <- with(df, table(coloc_association, gold_standard))
+  
+  tbl_mr_coloc <- with(df, table(mr_coloc_association, gold_standard))
+  
+  # fisher tests
+
+  mr_test <- tbl_mr %>% fisher.test()
+  
+  coloc_test <- tbl_coloc %>% fisher.test()
+  
+  mr_coloc_test <- tbl_mr_coloc %>% fisher.test()
+  
+  # tidying estimates in a dataframe
+
+  mr <- data.frame(estimate = mr_test$estimate, lci = mr_test$conf.int[1], uci = mr_test$conf.int[2], source = "mr", labels = labels_mr[x], stringsAsFactors = F)
+  
+  coloc <- data.frame(estimate = coloc_test$estimate, lci = coloc_test$conf.int[1], uci = coloc_test$conf.int[2], source = "coloc", labels = labels_coloc[x], stringsAsFactors = F)
+  
+  mr_coloc <- data.frame(estimate = mr_coloc_test$estimate, lci = mr_coloc_test$conf.int[1], uci = mr_coloc_test$conf.int[2], source = "mr_coloc", labels = labels_mr_coloc[x], stringsAsFactors = F)
+  
+  rbind(mr, coloc, mr_coloc)
+
+}, mc.cores = parallel::detectCores())
+
+mrdf <- do.call(rbind, lst)
+```
+
+
+```{r echo=F, message=F}
+### Plot MR estimates for GS genes
+
+mrdf1 <- mrdf[mrdf$source=="mr",]
+
+pd <- position_dodge(0.1)
+
+ggplot(mrdf1, aes(x=factor(labels, level = labels), y=estimate)) + 
+    geom_errorbar(aes(ymin=lci, ymax=uci), colour="black", width=.1, position=pd) +
+    geom_line(position=pd) + 
+    scale_x_discrete(labels = function(x) str_wrap(x, width = 20)) +
+    coord_trans (y="log") +
+    geom_point(position=pd, size=3, shape=21, fill="white") + # 21 is filled circle
+    xlab("Threshold") +
+    ylab("OR (95% CI)") +
+    ggtitle("Enrichment of Gold Standard genes in MR analysis") +
+    theme_bw() +
+geom_text(label=paste0(round(mrdf1$estimate, 2), " (", round(mrdf1$lci, 2), ", ", round(mrdf1$uci, 2), ")"), nudge_y=25, nudge_x = -0.005, check_overlap = T)
+
+
+```
+
+
+```{r echo=F, message=F}
+### Plot coloc estimates for GS genes
+
+mrdf2 <- mrdf[mrdf$source=="coloc",]
+
+pd <- position_dodge(0.1)
+
+ggplot(mrdf2, aes(x=factor(labels, level = labels), y=estimate)) + 
+    geom_errorbar(aes(ymin=lci, ymax=uci), colour="black", width=.1, position=pd) +
+    geom_line(position=pd) +
+    geom_point(position=pd, size=3, shape=21, fill="white") + # 21 is filled circle
+    xlab("Threshold") +
+    scale_x_discrete(labels = function(x) str_wrap(x, width = 16)) +
+    coord_trans (y="log") +
+    ylab("OR (95% CI)") +
+    ggtitle("Enrichment of Gold Standard genes in cis-coloc analysis") +
+    theme_bw() +
+    geom_text(label=paste0(round(mrdf2$estimate, 2), " (", round(mrdf2$lci, 2), ", ", round(mrdf2$uci, 2), ")"), nudge_y=6, nudge_x = -0.005)     
+```
+
+
+```{r echo=F, message=F}
+### Plot MR-coloc estimates for GS genes
+
+mrdf3 <- mrdf[mrdf$source=="mr_coloc",]
+
+pd <- position_dodge(0.1)
+
+ggplot(mrdf3, aes(x=factor(labels, level = labels), y=estimate)) + 
+    geom_errorbar(aes(ymin=lci, ymax=uci), colour="black", width=.1, position=pd) +
+    geom_line(position=pd) +
+    geom_point(position=pd, size=3, shape=21, fill="white") + # 21 is filled circle
+    xlab("Threshold") +
+    scale_x_discrete(labels = function(x) str_wrap(x, width = 16)) +
+    coord_trans (y="log") +
+    ylab("OR (95% CI)") +
+    ggtitle("Enrichment of Gold Standard genes in MR-coloc analysis") +
+    theme_bw() + 
+    geom_text(label=paste0(round(mrdf3$estimate, 1), " (", round(mrdf3$lci, 1), ", ", round(mrdf3$uci, 1), ")"), nudge_y=200, nudge_x = 0.1, check_overlap = T)
+```
+
+
+## 2 x 2 tables for GS genes
+
+```{r echo=F}
+pvals <- c(0.05, 0.005, 0.0005, 0.00005, 0.000005)
+
+colocs <- c(0.2, 0.4, 0.6, 0.8, 0.9)
+
+labels <- c("Very weak", "Weak", "Moderate", "Strong", "Very strong")
+
+labels_mr <- paste0(labels, " (p < ", pvals, ")")
+
+labels_coloc <- paste0(labels, " (coloc_H4 > ", colocs, ")")
+
+labels_mr_coloc <- paste0(labels, " (coloc_H4 > ", colocs, ")", " (p < ", pvals, ")")
+
+lst <- parallel::mclapply(seq(pvals), function (x) {
+  
+  pval <- pvals[x]
+  
+  coloc <- colocs[x]
+  
+  df <- get("mr_gsg")
+  
+  # df$mr_association <- with(df, ifelse(!is.na(exp_out_gsmr) & is.na(exp_out_coloc) & bxy_pval < pval, "1_Associated via MR", "2_No evidence of MR association"))
+  
+  df$mr_association <- with(df, ifelse(bxy_pval < pval, "1_Associated via MR", "2_No evidence of MR association"))
+  
+  # df$coloc_association <- with(df, ifelse(is.na(exp_out_gsmr) & !is.na(exp_out_coloc) & coloc_h4 > coloc, "1_Associated via coloc", "2_No evidence of shared coloc signal"))
+  
+  df$coloc_association <- with(df, ifelse(coloc_h4 > coloc, "1_Associated via coloc", "2_No evidence of shared coloc signal"))
+  
+  df$mr_coloc_association <- with(df, ifelse(coloc_h4 > coloc & bxy_pval < pval, "1_Associated via MR+coloc", "2_No evidence of MR+coloc association"))
+
+  df$gold_standard <- with(df, ifelse(!is.na(gold_standard_info.gene_id), "1_Yes", "2_No"))
+  
+  # df <- df[!which(duplicated(df$key)),]
+  
+  # 2 x 2 tables
+
+  tbl_mr <- with(df, table(mr_association, gold_standard))
+  
+  tbl_coloc <- with(df, table(coloc_association, gold_standard))
+  
+  tbl_mr_coloc <- with(df, table(mr_coloc_association, gold_standard))
+  
+
+  dftbls <- function (x) {
+  f <- as.data.frame.matrix(x, stringsAsFactors = F)
+  f <- cbind(row.names(f), f)
+  row.names(f) <- NULL
+  names(f)[1] <- "Data"
+  return(f)
+  }
+  
+  mr <- dftbls(tbl_mr)
+  coloc <- dftbls(tbl_coloc)
+  mr_coloc <- dftbls(tbl_mr_coloc)
+  
+  mr$labels <- labels_mr[x]
+  coloc$labels <- labels_coloc[x]
+  mr_coloc$labels <- labels_mr_coloc[x]
+  
+  n <- mr[1,]
+  
+  n <- ""
+  
+  rbind(mr, n, coloc, n, mr_coloc, n)
+
+}, mc.cores = parallel::detectCores())
+
+mrdf <- do.call(rbind, lst)
+
+mrdf$Data <- as.character(mrdf$Data)
+
+mrdf$Data[is.na(mrdf$Data)] <- ""
+
+knitr::kable(mrdf, caption = "2 x 2 tables for MR-coloc vs. gold standard genes", align = 'c')
+```
+
+
+```{r echo=F, eval=F}
+
+## table of sensitivity, specificity, PPV, NPV for GS genes
+
+pvals <- c(0.05, 0.005, 0.0005, 0.00005, 0.000005)
+
+colocs <- c(0.2, 0.4, 0.6, 0.8, 0.9)
+
+labels <- c("Very weak", "Weak", "Moderate", "Strong", "Very strong")
+
+labels_mr <- paste0(labels, " (p < ", pvals, ")")
+
+labels_coloc <- paste0(labels, " (coloc_H4 > ", colocs, ")")
+
+labels_mr_coloc <- paste0(labels, " (coloc_H4 > ", colocs, ")", " (p < ", pvals, ")")
+
+lst <- parallel::mclapply(seq(pvals), function (x) {
+  
+  require(caret)
+  
+  pval <- pvals[x]
+  
+  coloc <- colocs[x]
+  
+  df <- get("mr_gsg")
+  
+  # df$mr_association <- with(df, ifelse(!is.na(exp_out_gsmr) & is.na(exp_out_coloc) & bxy_pval < pval, "1_Associated via MR", "2_No evidence of MR association"))
+  
+  df$mr_association <- with(df, ifelse(bxy_pval < pval, "1_Yes", "2_No"))
+  
+  # df$coloc_association <- with(df, ifelse(is.na(exp_out_gsmr) & !is.na(exp_out_coloc) & coloc_h4 > coloc, "1_Associated via coloc", "2_No evidence of shared coloc signal"))
+  
+  df$coloc_association <- with(df, ifelse(coloc_h4 > coloc, "1_Yes", "2_No"))
+  
+  df$mr_coloc_association <- with(df, ifelse(coloc_h4 > coloc & bxy_pval < pval, "1_Yes", "2_No"))
+
+  df$gold_standard <- with(df, ifelse(!is.na(gold_standard_info.gene_id), "1_Yes", "2_No"))
+  
+  # df <- df[!which(duplicated(df$key)),]
+  
+  # 2 x 2 tables
+
+  tbl_mr_mat <- with(df, table(mr_association, gold_standard))
+  
+  tbl_mr_sensitivity <- sensitivity(tbl_mr_mat)
+  tbl_mr_specificity <- specificity(tbl_mr_mat)
+  tbl_mr_ppv <- posPredValue(tbl_mr_mat)
+  tbl_mr_npv <- negPredValue(tbl_mr_mat)
+
+  
+  tbl_coloc_mat <- with(df, table(coloc_association, gold_standard))
+  
+  tbl_coloc_sensitivity <- sensitivity(tbl_coloc_mat)
+  tbl_coloc_specificity <- specificity(tbl_coloc_mat)
+  tbl_coloc_ppv <- posPredValue(tbl_coloc_mat)
+  tbl_coloc_npv <- negPredValue(tbl_coloc_mat)
+  
+  
+  tbl_mr_coloc_mat <- with(df, table(mr_coloc_association, gold_standard))
+  
+  tbl_mr_coloc_sensitivity <- sensitivity(tbl_mr_coloc_mat)
+  tbl_mr_coloc_specificity <- specificity(tbl_mr_coloc_mat)
+  tbl_mr_coloc_ppv <- posPredValue(tbl_mr_coloc_mat)
+  tbl_mr_coloc_npv <- negPredValue(tbl_mr_coloc_mat)
+  
+  mr_labels <- labels_mr[x]
+  coloc_labels <- labels_coloc[x]
+  mr_coloc_labels <- labels_mr_coloc[x]
+  
+  df_mr <- data.frame(labels = mr_labels, sensitivity = tbl_mr_sensitivity, specificity = tbl_mr_specificity, ppv = tbl_mr_ppv, npv = tbl_mr_npv, stringsAsFactors = F)
+  
+  df_coloc <- data.frame(labels = coloc_labels, sensitivity = tbl_coloc_sensitivity, specificity = tbl_coloc_specificity, ppv = tbl_coloc_ppv, npv = tbl_coloc_npv, stringsAsFactors = F)
+  
+  df_mr_coloc <- data.frame(labels = mr_coloc_labels, sensitivity = tbl_mr_coloc_sensitivity, specificity = tbl_mr_coloc_specificity, ppv = tbl_mr_coloc_ppv, npv = tbl_mr_coloc_npv, stringsAsFactors = F)
+
+  
+  rbind(df_mr, df_coloc, df_mr_coloc)
+
+}, mc.cores = parallel::detectCores())
+
+mrdf <- do.call(rbind, lst)
+
+mrdf[,-1] <- lapply(mrdf[,-1], formatC, signif(digits = 3), digits=3,format="fg", flag="#") # rounding to 3 sf
+
+knitr::kable(mrdf, caption = "Sensitivity, specificity, and predictive values for MR-coloc vs. gold standard genes", align = 'lcccc')
+```
+
+
+## Enrichment of phase 4 target-trait pairs
+
+- This analysis used a merged dataset (using unique ensembl_id and **parent_efo_id** pairs) of mr-coloc with the clinical trials from the platform.
+
+```{r echo=F}
+### Load dataset
+
+mr_drugs_genes <- readRDS("~/mr_coloc_approved_targets.rds")
+
+# merged dataset (using ensembl_id_parent_efo_id pairs) of mr-coloc with the clinical trials from the platform > " Contains unique target-trait pairs (but traits mapped via parent efo and not direct efos).
+```
+
+
+## Plots for phase 4 targets at different MR and coloc thresholds
+
+```{r echo=F}
+### Perform fisher tests at different MR and coloc thresholds
+
+pvals <- c(0.05, 0.005, 0.0005, 0.00005, 0.000005)
+
+colocs <- c(0.2, 0.4, 0.6, 0.8, 0.9)
+
+labels <- c("Very weak", "Weak", "Moderate", "Strong", "Very strong")
+
+labels_mr <- paste0(labels, " (p < ", pvals, ")")
+
+labels_coloc <- paste0(labels, " (coloc_H4 > ", colocs, ")")
+
+labels_mr_coloc <- paste0(labels, " (coloc_H4 > ", colocs, ")", " (p < ", pvals, ")")
+
+lst <- parallel::mclapply(seq(pvals), function (x) {
+  
+  pval <- pvals[x]
+  
+  coloc <- colocs[x]
+  
+  # print(coloc)
+  
+  df <- get("mr_drugs_genes")
+  
+  # df$mr_association <- with(df, ifelse(!is.na(exp_out_gsmr) & is.na(exp_out_coloc) & bxy_pval < pval, "1_Associated via MR", "2_No evidence of MR association"))
+  
+  df$mr_association <- with(df, ifelse(bxy_pval < pval, "1_Associated via MR", "2_No evidence of MR association"))
+  
+  # df$coloc_association <- with(df, ifelse(is.na(exp_out_gsmr) & !is.na(exp_out_coloc) & coloc_h4 > coloc, "1_Associated via coloc", "2_No evidence of shared coloc signal"))
+  
+  df$coloc_association <- with(df, ifelse(coloc_h4 > coloc, "1_Associated via coloc", "2_No evidence of shared coloc signal"))
+  
+  df$mr_coloc_association <- with(df, ifelse(coloc_h4 > coloc & bxy_pval < pval, "1_Associated via MR+coloc", "2_No evidence of MR+coloc association"))
+
+  df$phase_4 <- with(df, ifelse(phase_rev==4, "1_Yes", "2_No"))
+  
+  # df <- df[which(!duplicated(df$key) & !is.na(df$key)),]
+  
+  # 2 x 2 tables
+
+  tbl_mr <- with(df, table(mr_association, phase_4))
+  
+  # print(tbl_mr)
+  
+  tbl_coloc <- with(df, table(coloc_association, phase_4))
+  
+  print(tbl_coloc)
+  
+  tbl_mr_coloc <- with(df, table(mr_coloc_association, phase_4))
+  
+  # print(tbl_mr_coloc)
+  
+  # fisher tests
+
+  mr_test <- tbl_mr %>% fisher.test()
+  
+  coloc_test <- tbl_coloc %>% fisher.test()
+  
+  mr_coloc_test <- tbl_mr_coloc %>% fisher.test()
+  
+  # tidying estimates in a dataframe
+
+  mr <- data.frame(estimate = mr_test$estimate, lci = mr_test$conf.int[1], uci = mr_test$conf.int[2], source = "mr", labels = labels_mr[x], stringsAsFactors = F)
+  
+  coloc <- data.frame(estimate = coloc_test$estimate, lci = coloc_test$conf.int[1], uci = coloc_test$conf.int[2], source = "coloc", labels = labels_coloc[x], stringsAsFactors = F)
+  
+  mr_coloc <- data.frame(estimate = mr_coloc_test$estimate, lci = mr_coloc_test$conf.int[1], uci = mr_coloc_test$conf.int[2], source = "mr_coloc", labels = labels_mr_coloc[x], stringsAsFactors = F)
+  
+  rbind(mr, coloc, mr_coloc)
+
+}, mc.cores = parallel::detectCores())
+
+mrdf <- do.call(rbind, lst)
+
+```
+
+```{r echo=F, message=F}
+### Plot MR estimates for phase 4 targets
+
+mrdf1 <- mrdf[mrdf$source=="mr",]
+
+pd <- position_dodge(0.1)
+
+ggplot(mrdf1, aes(x=factor(labels, level = labels), y=estimate)) + 
+    geom_errorbar(aes(ymin=lci, ymax=uci), colour="black", width=.1, position=pd) +
+    geom_line(position=pd) +
+    geom_point(position=pd, size=3, shape=21, fill="white") + # 21 is filled circle
+    xlab("Threshold") +
+    scale_x_discrete(labels = function(x) str_wrap(x, width = 16)) +
+    coord_trans (y="log") +
+    ylab("OR (95% CI)") +
+    ggtitle("Enrichment of Phase 4 targets in MR analysis") +
+    theme_bw() +
+    geom_text(label=paste0(round(mrdf1$estimate, 2), " (", round(mrdf1$lci, 2), ", ", round(mrdf1$uci, 2), ")"), nudge_y=1.5, nudge_x = -0.005) 
+```
+
+```{r echo=F}
+mrdf2 <- mrdf[mrdf$source=="coloc",]
+
+row.names(mrdf2) <- NULL
+
+knitr::kable(mrdf2, caption = "coloc estimates for phase 4 targets", align = 'c')
+
+```
+
+
+```{r echo=F, message=F, eval=F}
+### Plot coloc estimates for phase 4 targets
+
+mrdf2 <- mrdf[mrdf$source=="coloc",]
+
+pd <- position_dodge(0.1)
+
+ggplot(mrdf2, aes(x=factor(labels, level = labels), y=estimate)) + 
+    geom_errorbar(aes(ymin=lci, ymax=uci), colour="black", width=.1, position=pd) +
+    geom_line(position=pd) +
+    geom_point(position=pd, size=3, shape=21, fill="white") + # 21 is filled circle
+    xlab("Threshold") +
+    scale_x_discrete(labels = function(x) str_wrap(x, width = 16)) +
+    coord_trans (y="log10") +
+    ylab("OR (95% CI)") +
+    ggtitle("Enrichment of Phase 4 in cis-coloc analysis") +
+    theme_bw() +
+    geom_text(label=paste0(round(mrdf2$estimate, 2), " (", round(mrdf2$lci, 2), ", ", round(mrdf2$uci, 2), ")"), nudge_y=2200, nudge_x = 0.1, check_overlap = T)               
+```
+
+```{r echo=F}
+mrdf3 <- mrdf[mrdf$source=="mr_coloc",]
+
+row.names(mrdf3) <- NULL
+
+knitr::kable(mrdf3, caption = "MR-coloc estimates for phase 4 targets", align = 'c')
+
+```
+
+
+```{r echo=F, message=F, eval=F}
+### Plot MR-coloc estimates for phase 4 targets
+
+mrdf3 <- mrdf[mrdf$source=="mr_coloc",]
+
+pd <- position_dodge(0.1)
+
+ggplot(mrdf3, aes(x=factor(labels, level = labels), y=estimate)) + 
+    geom_errorbar(aes(ymin=lci, ymax=uci), colour="black", width=.1, position=pd) +
+    geom_line(position=pd) +
+    geom_point(position=pd, size=3, shape=21, fill="white") + # 21 is filled circle
+    xlab("Threshold") +
+    scale_x_discrete(labels = function(x) str_wrap(x, width = 16)) +
+    coord_trans (y="log") +
+    ylab("OR (95% CI)") +
+    ggtitle("Enrichment of Phase 4 targets in mr-coloc analysis") +
+    theme_bw() +
+    geom_text(label=paste0(round(mrdf3$estimate, 2), " (", round(mrdf3$lci, 2), ", ", round(mrdf3$uci, 2), ")"), nudge_y=700, nudge_x = 0.1, check_overlap = T)
+
+```
+
+## 2 x 2 tables for phase 4 targets
+
+```{r echo=F}
+pvals <- c(0.05, 0.005, 0.0005, 0.00005, 0.000005)
+
+colocs <- c(0.2, 0.4, 0.6, 0.8, 0.9)
+
+labels <- c("Very weak", "Weak", "Moderate", "Strong", "Very strong")
+
+labels_mr <- paste0(labels, " (p < ", pvals, ")")
+
+labels_coloc <- paste0(labels, " (coloc_H4 > ", colocs, ")")
+
+labels_mr_coloc <- paste0(labels, " (coloc_H4 > ", colocs, ")", " (p < ", pvals, ")")
+
+lst <- parallel::mclapply(seq(pvals), function (x) {
+  
+  pval <- pvals[x]
+  
+  coloc <- colocs[x]
+  
+  df <- get("mr_drugs_genes")
+  
+  df$mr_association <- with(df, ifelse(bxy_pval < pval, "1_Associated via MR", "2_No evidence of MR association"))
+  
+  df$coloc_association <- with(df, ifelse(coloc_h4 > coloc, "1_Associated via coloc", "2_No evidence of shared coloc signal"))
+  
+  df$mr_coloc_association <- with(df, ifelse(coloc_h4 > coloc & bxy_pval < pval, "1_Associated via MR+coloc", "2_No evidence of MR+coloc association"))
+
+  df$phase_4 <- with(df, ifelse(phase_rev==4, "1_Yes", "2_No"))
+  
+  # 2 x 2 tables
+
+  tbl_mr <- with(df, table(mr_association, phase_4))
+
+  
+  tbl_coloc <- with(df, table(coloc_association, phase_4))
+
+  
+  tbl_mr_coloc <- with(df, table(mr_coloc_association, phase_4))
+  
+
+  dftbls <- function (x) {
+  f <- as.data.frame.matrix(x, stringsAsFactors = F)
+  f <- cbind(row.names(f), f)
+  row.names(f) <- NULL
+  names(f)[1] <- "Data"
+  return(f)
+  }
+  
+  mr <- dftbls(tbl_mr)
+  coloc <- dftbls(tbl_coloc)
+  mr_coloc <- dftbls(tbl_mr_coloc)
+  
+  mr$labels <- labels_mr[x]
+  coloc$labels <- labels_coloc[x]
+  mr_coloc$labels <- labels_mr_coloc[x]
+  
+  n <- mr[1,]
+  
+  n <- ""
+  
+  rbind(mr, n, coloc, n, mr_coloc, n)
+
+}, mc.cores = parallel::detectCores())
+
+mrdf <- do.call(rbind, lst)
+
+mrdf$Data <- as.character(mrdf$Data)
+
+mrdf$Data[is.na(mrdf$Data)] <- ""
+
+knitr::kable(mrdf, caption = "2 x 2 tables for MR-coloc vs. approved targets", align = 'c')
+```
+
+```{r echo=F, eval=F}
+## table of sensitivity, specificity, PPV, NPV for Phase 4 targets
+
+pvals <- c(0.05, 0.005, 0.0005, 0.00005, 0.000005)
+
+colocs <- c(0.2, 0.4, 0.6, 0.8, 0.9)
+
+labels <- c("Very weak", "Weak", "Moderate", "Strong", "Very strong")
+
+labels_mr <- paste0(labels, " (p < ", pvals, ")")
+
+labels_coloc <- paste0(labels, " (coloc_H4 > ", colocs, ")")
+
+labels_mr_coloc <- paste0(labels, " (coloc_H4 > ", colocs, ")", " (p < ", pvals, ")")
+
+lst <- parallel::mclapply(seq(pvals), function (x) {
+  
+  require(caret)
+  
+  pval <- pvals[x]
+  
+  coloc <- colocs[x]
+  
+  df <- get("mr_drugs_genes")
+  
+  df$mr_association <- with(df, ifelse(bxy_pval < pval, "1_Yes", "2_No"))
+  
+  df$coloc_association <- with(df, ifelse(coloc_h4 > coloc, "1_Yes", "2_No"))
+  
+  df$mr_coloc_association <- with(df, ifelse(coloc_h4 > coloc & bxy_pval < pval, "1_Yes", "2_No"))
+
+  df$phase_4 <- with(df, ifelse(phase_rev==4, "1_Yes", "2_No"))
+  
+  # 2 x 2 tables
+
+  tbl_mr_mat <- with(df, table(mr_association, phase_4))
+  
+  tbl_mr_sensitivity <- sensitivity(tbl_mr_mat)
+  tbl_mr_specificity <- specificity(tbl_mr_mat)
+  tbl_mr_ppv <- posPredValue(tbl_mr_mat)
+  tbl_mr_npv <- negPredValue(tbl_mr_mat)
+
+  
+  tbl_coloc_mat <- with(df, table(coloc_association, phase_4))
+  
+  tbl_coloc_sensitivity <- sensitivity(tbl_coloc_mat)
+  tbl_coloc_specificity <- specificity(tbl_coloc_mat)
+  tbl_coloc_ppv <- posPredValue(tbl_coloc_mat)
+  tbl_coloc_npv <- negPredValue(tbl_coloc_mat)
+  
+  
+  tbl_mr_coloc_mat <- with(df, table(mr_coloc_association, phase_4))
+  
+  tbl_mr_coloc_sensitivity <- sensitivity(tbl_mr_coloc_mat)
+  tbl_mr_coloc_specificity <- specificity(tbl_mr_coloc_mat)
+  tbl_mr_coloc_ppv <- posPredValue(tbl_mr_coloc_mat)
+  tbl_mr_coloc_npv <- negPredValue(tbl_mr_coloc_mat)
+  
+  mr_labels <- labels_mr[x]
+  coloc_labels <- labels_coloc[x]
+  mr_coloc_labels <- labels_mr_coloc[x]
+  
+  df_mr <- data.frame(labels = mr_labels, sensitivity = tbl_mr_sensitivity, specificity = tbl_mr_specificity, ppv = tbl_mr_ppv, npv = tbl_mr_npv, stringsAsFactors = F)
+  
+  df_coloc <- data.frame(labels = coloc_labels, sensitivity = tbl_coloc_sensitivity, specificity = tbl_coloc_specificity, ppv = tbl_coloc_ppv, npv = tbl_coloc_npv, stringsAsFactors = F)
+  
+  df_mr_coloc <- data.frame(labels = mr_coloc_labels, sensitivity = tbl_mr_coloc_sensitivity, specificity = tbl_mr_coloc_specificity, ppv = tbl_mr_coloc_ppv, npv = tbl_mr_coloc_npv, stringsAsFactors = F)
+
+  
+  rbind(df_mr, df_coloc, df_mr_coloc)
+
+}, mc.cores = parallel::detectCores())
+
+mrdf <- do.call(rbind, lst)
+
+mrdf[,-1] <- lapply(mrdf[,-1], formatC, signif(digits = 3), digits=3,format="fg", flag="#") # rounding to 3 sf
+
+knitr::kable(mrdf, caption = "Sensitivity, specificity, and predictive values for MR-coloc vs. phase 4 targets", align = 'lcccc')
+```
+
+## Correlation of multi-SNP bxy with MR-Egger beta and MR-WM beta
+
+```{r echo=F}
+df <- readRDS("~/mr_prot_filtered_dataset_v1_v2.rds")
+
+df_sig <- df %>% filter(bxy_pval < 0.0005) # because the dataset included coloc data with no bxy_vals
+
+df_multisnp <- df_sig %>% filter(nsnp >= 3)
+
+# multi-SNP gsmr sig %
+
+prop_multi_snp <- round(nrow(df_multisnp)/nrow(df_sig)*100, 2) # 56%
+
+# Proportion of multi-SNP sig MR supported by MR-Egger
+
+df2 <- df_multisnp[which(df_multisnp$mr_egger_p < 0.05),]
+
+prop_egger_supported <- round(nrow(df2)/nrow(df_multisnp)*100, 2)
+
+# Proportion of multi-SNP sig MR supported by MR-WM
+
+df3 <- df_multisnp[which(df_multisnp$mr_wm_p < 0.05),]
+
+prop_wm_supported <- round(nrow(df3)/nrow(df_multisnp)*100, 2)
+
+# Proportion of multi-SNP sig MR supported by both MR-WM and MR-Egger
+
+df4 <- df_multisnp[which(df_multisnp$mr_wm_p < 0.05 & df_multisnp$mr_egger_p < 0.05),]
+
+prop_egger_wm_supported <- round(nrow(df4)/nrow(df_multisnp)*100, 2)
+```
+
+- \textcolor{blue}{`r prop_multi_snp`\%} of all MR associations at bxy_pval < 0.0005 had >= 3 SNPs.(multi-SNP significant MRs)
+    - \textcolor{blue}{`r prop_egger_supported`\%} all multi-SNP significant MRs were supported by MR-Egger at egger p < 0.05
+    - \textcolor{blue}{`r prop_wm_supported`\%} all multi-SNP significant MRs were supported by MR-Weighted Median (WM) at WM p < 0.05
+    - \textcolor{blue}{`r prop_egger_wm_supported`\%} all multi-SNP significant MRs were supported by both MR-Egger and MR-Weighted Median (WM) at p < 0.05.
+
+## GSMR beta and MR egger correlation
+
+```{r echo=F, message=F}
+df <- readRDS("~/mr_prot_filtered_dataset_v1_v2.rds")
+
+# df <- df[which(is.na(df$exp_out_coloc)),]
+
+df <- df[which(df$mr_egger_p < 0.05),]
+
+df <- df %>% select(bxy, mr_egger)
+
+with(df, plot(bxy, mr_egger, main="beta-beta correlation between GSMR and Egger estimate",
+   xlab="GSMR beta ", ylab="Egger beta ", pch=19))
+mtext(bquote(r^2 == .(round(cor(df$bxy, df$mr_egger), 2))), side=3)
+```
+
+# GSMR beta and MR Weighted Median beta correlation
+
+```{r echo=F, message=F}
+df <- readRDS("~/mr_prot_filtered_dataset_v1_v2.rds")
+
+# df <- df[which(is.na(df$exp_out_coloc)),]
+
+df <- df[which(df$mr_wm_p < 0.05),]
+
+df <- df %>% select(bxy, mr_wm)
+
+with(df, plot(bxy, mr_wm, main="beta-beta correlation between GSMR and MR-WM estimate",
+   xlab="GSMR beta ", ylab="WM beta ", pch=19))
+mtext(bquote(r^2 == .(round(cor(df$bxy, df$mr_wm), 2))), side=3)
+
+```
+
+# MR-coloc recaps therapeutic and adverse effects from clinical trials (in progress)
+
+# APPLICATION (in progress)
+
+# MR-coloc provides a list of high confidence therapeutic targets with no observed A/Es for CAD, etc
+
+# MR-coloc predicts the opposing effects of IBD and allergic/atopic disease traits and identifies target therapeutic for both IBD and allergic/atopic disease
+
+
